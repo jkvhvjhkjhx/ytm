@@ -30,7 +30,7 @@ if (-not $scoop) {
 }
 
 Write-Step 'Installing playback dependencies'
- $buckets = @(& scoop bucket list 2>$null | ForEach-Object { ($_ -split '\s+')[0] })
+$buckets = @(& scoop bucket list 2>$null | Select-Object -ExpandProperty Name)
 if ($LASTEXITCODE -ne 0) { throw 'Could not read Scoop buckets.' }
 if ($buckets -notcontains 'extras') {
   & scoop bucket add extras
