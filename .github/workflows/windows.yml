@@ -1,0 +1,25 @@
+name: Windows build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test
+        run: go test -buildvcs=false ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: go build -buildvcs=false -o ytm.exe .

@@ -1,0 +1,15 @@
+*.exe
+*.test
+*.log
+*.tmp
+*.before
+*.before.*
+*.zip
+dist/
+.env
+.env.*
+config.toml
+playlist.json
+cache/
+artwork/
+.DS_Store

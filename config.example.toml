@@ -1,0 +1,12 @@
+theme = "nocturne"
+visualizer_style = "spectrum"
+visualizer_fps = 24
+volume = 70
+thumbnail_size = 52
+image_mode = "auto" # auto, sixel, halfblock, off
+default_search_limit = 10
+mpv_path = ""
+yt_dlp_path = ""
+cava_path = ""
+deno_path = ""
+node_path = ""
