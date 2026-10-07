@@ -1,0 +1,39 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test
+        run: go test -buildvcs=false ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build and package
+        shell: pwsh
+        run: |
+          ./package.ps1 -OutputDirectory ./dist
+          $archive = Get-ChildItem ./dist/*.zip | Select-Object -First 1
+          Copy-Item $archive.FullName ./dist/ytm-windows-amd64.zip -Force
+          $hash = (Get-FileHash ./dist/ytm-windows-amd64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  ytm-windows-amd64.zip" | Set-Content ./dist/ytm-windows-amd64.zip.sha256 -Encoding ascii
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          make_latest: true
+          files: |
+            dist/ytm-windows-amd64.zip
+            dist/ytm-windows-amd64.zip.sha256

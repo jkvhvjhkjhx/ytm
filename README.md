@@ -22,6 +22,24 @@ new playback queue using that playlist's current order.
 
 ## Install on Windows
 
+### Quick install (one command)
+
+Open Windows Terminal / PowerShell and paste:
+
+```powershell
+irm https://raw.githubusercontent.com/jkvhvjhkjhx/ytm/main/install-ytm.ps1 | iex
+```
+
+The installer sets up Scoop for your Windows account if needed, installs mpv,
+yt-dlp, Deno and CAVA, verifies the YTM release checksum, and adds `ytm` to your
+user PATH. It does not require administrator rights for Scoop; WinGet may ask
+for confirmation when installing CAVA. Close and reopen the terminal after it
+finishes, then run `ytm`. The command requires WinGet (App Installer) and an
+internet connection.
+
+The same installer is available as a file from the repository:
+[install-ytm.ps1](install-ytm.ps1).
+
 ### 1. Install dependencies
 
 Use a recent Windows Terminal and install [Scoop](https://scoop.sh/) if you do
@@ -39,8 +57,8 @@ YTM also allows yt-dlp to fetch its EJS component from GitHub.
 
 ### 2. Get YTM
 
-If a Windows release ZIP is available in this repository's **Releases**, download
-and extract it. The ZIP contains YTM; playback dependencies are installed separately.
+If you prefer manual installation, download the Windows release ZIP from this
+repository's **Releases** and extract it.
 From the extracted folder:
 
 ```powershell
