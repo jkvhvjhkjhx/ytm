@@ -30,6 +30,12 @@ if (-not $scoop) {
 }
 
 Write-Step 'Installing playback dependencies'
+ $buckets = @(& scoop bucket list 2>$null | ForEach-Object { ($_ -split '\s+')[0] })
+if ($LASTEXITCODE -ne 0) { throw 'Could not read Scoop buckets.' }
+if ($buckets -notcontains 'extras') {
+  & scoop bucket add extras
+  if ($LASTEXITCODE -ne 0) { throw 'Scoop failed to add its extras bucket, which provides mpv.' }
+}
 if (-not (Get-Command mpv -ErrorAction SilentlyContinue)) {
   & scoop install mpv
   if ($LASTEXITCODE -ne 0) { throw 'Scoop failed to install mpv.' }
