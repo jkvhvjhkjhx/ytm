@@ -30,12 +30,16 @@ Open Windows Terminal / PowerShell and paste:
 irm https://raw.githubusercontent.com/jkvhvjhkjhx/ytm/main/install-ytm.ps1 | iex
 ```
 
-The installer sets up Scoop for your Windows account if needed, installs mpv,
-yt-dlp, Deno and CAVA, verifies the YTM release checksum, and adds `ytm` to your
+The installer sets up Scoop and Git for your Windows account if needed, installs
+mpv, yt-dlp, Deno and CAVA, verifies the YTM release checksum, and adds `ytm` to your
 user PATH. It does not require administrator rights for Scoop; WinGet may ask
 for confirmation when installing CAVA. Close and reopen the terminal after it
 finishes, then run `ytm`. The command requires WinGet (App Installer) and an
 internet connection.
+
+No GitHub account is needed. Downloads retry automatically. If installation
+fails, the installer names the failing step and prints its log path under
+`%LOCALAPPDATA%\ytm\logs\install-*.log`. Close YTM before reinstalling it.
 
 The same installer is available as a file from the repository:
 [install-ytm.ps1](install-ytm.ps1).
