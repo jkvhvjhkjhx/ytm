@@ -12,6 +12,8 @@ eye-catching interface.
 
 ![YTM playing music in Windows Terminal](docs/images/anh-moi.jpg)
 
+![YTM playing YOASOBI in Windows Terminal](docs/images/ytm-demo-2.jpg)
+
 ## What it does
 
 - Search YouTube or open a YouTube / YouTube Music video URL.
