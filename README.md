@@ -6,6 +6,12 @@ spectrum with an animated rainbow, and playlists you can manage from the keyboar
 Built with Go, Bubble Tea, mpv, yt-dlp and CAVA. Windows 10/11 is the supported
 platform; the current source does not build for Linux or macOS.
 
+Want to listen to music in your terminal like on Linux, without the setup and
+customization? YTM is a great choice. One PowerShell command gets you this
+eye-catching interface.
+
+![YTM playing music in Windows Terminal](docs/images/ytm-demo.jpg)
+
 ## What it does
 
 - Search YouTube or open a YouTube / YouTube Music video URL.
