@@ -49,53 +49,61 @@ type geometry struct {
 	spectrumTop, spectrumBottom    int // terminal rows, bottom exclusive
 	spectrumHeight                 int
 	narrow, short                  bool
+	cellW, cellH                   int
 }
 
 func layout(w, h, size int) geometry {
-	g := geometry{w: max(1, w-1), h: max(1, h), narrow: w < 72, short: h < 23}
+	return artworkLayout(w, h, size, 16.0/9, 1, 2)
+}
+
+func artworkLayout(w, h, size int, aspect float64, cellW, cellH int) geometry {
+	if aspect <= 0 || math.IsNaN(aspect) || math.IsInf(aspect, 0) {
+		aspect = 16.0 / 9
+	}
+	g := geometry{w: max(1, w-1), h: max(1, h), narrow: w < 72, short: h < 23,
+		cellW: max(1, cellW), cellH: max(1, cellH)}
 	if w < 38 || h < 16 {
 		g.listY = max(0, g.h-3)
 		return g
 	}
-	// Width chooses the columns; height independently chooses metadata density.
-	if g.narrow {
-		g.artW = min(24, max(10, w/3))
-	} else {
-		g.artW = max(20, w/2-3)
-	}
-	g.infoX = g.artW + 6
+	// Keep the list/status anchors from the responsive layout. Reserve vertical
+	// space for the analyzer before choosing the image's aspect-correct size.
 	g.infoH = 7
 	if g.short {
 		g.infoH = 5
-		g.artH = min(7, max(3, h-12))
-		g.listY = 6 + g.artH
+		g.listY = 6 + min(7, max(3, h-12))
 	} else {
 		baseH := min(14, max(8, h-17))
 		if g.narrow {
-			// A tall pane gives its surplus rows to the spectrum, not the image.
-			g.artH = 7
 			g.listY = max(14, h-10)
 		} else {
-			// Preserve the approved wide layout's artwork and list geometry.
 			g.listY = max(6+baseH, h-10)
-			g.artH = max(baseH, g.listY-6)
 		}
 	}
 	// One blank row before the list; status/footer occupy the final two rows.
 	g.listY = min(g.listY, h-5)
 	g.spectrumBottom = g.listY - 1
-	if g.narrow || g.short || g.artH <= 9 {
-		// Once below both artwork and metadata the analyzer can span the pane.
-		g.spectrumX, g.spectrumW = 2, g.w-4
-		g.spectrumTop = max(3+g.artH, 3+g.infoH)
-		if g.narrow && !g.short {
-			g.spectrumTop++
-		}
-	} else {
-		g.spectrumX, g.spectrumW = g.infoX, g.w-g.infoX-1
-		g.spectrumTop = 3 + g.infoH + 2
+	gap, minimumSpectrum := 1, 2
+	if g.short {
+		gap = 0
 	}
-	g.spectrumTop = min(g.spectrumTop, g.spectrumBottom)
+	if h == 16 {
+		minimumSpectrum = 1
+	}
+	// 24 columns on medium narrow panes; approximately one third at 80-110;
+	// cap at 38 on wider terminals. Always leave 16 columns for metadata.
+	g.artW = min(clamp(w/3, 24, 38), g.w-2-4-1-16)
+	// Convert pixels to terminal rows. Half-block uses 1x2 pixels per cell;
+	// Sixel uses the same measured cell dimensions as the image encoder.
+	columnsPerRow := aspect * float64(g.cellH) / float64(g.cellW)
+	maxArtRows := max(1, min(12, g.spectrumBottom-3-gap-minimumSpectrum))
+	g.artW = max(1, min(g.artW, int(math.Floor(float64(maxArtRows)*columnsPerRow))))
+	g.artH = min(maxArtRows, max(1, int(math.Ceil(float64(g.artW)/columnsPerRow))))
+	g.infoX = 2 + g.artW + 4
+	// The entire spectrum is below both image and metadata, never beside an
+	// oversized empty artwork canvas. Extra pane height goes to this region.
+	g.spectrumX, g.spectrumW = 2, g.w-4
+	g.spectrumTop = max(3+g.artH, 3+g.infoH) + gap
 	g.spectrumHeight = max(0, g.spectrumBottom-g.spectrumTop)
 	return g
 }
@@ -137,10 +145,15 @@ func (m *model) frame(g geometry) []string {
 	}
 	bw := max(1, infoW-14)
 	filled := int(prog * float64(bw))
+	clock := fmt.Sprintf("%s / %s   VOL %d%%", humanDuration(m.snapshot.Time), humanDuration(dur), m.volume)
+	if ansi.StringWidth(clock) > infoW {
+		// Keep time and volume visible beside the enlarged image in split panes.
+		clock = fmt.Sprintf("%s/%s %d%%", humanDuration(m.snapshot.Time), humanDuration(dur), m.volume)
+	}
 	info := map[int]string{0: accent + state + reset, 2: bright + truncate(title, infoW) + reset, 3: dim + truncate(artist, infoW) + reset, 5: accent + strings.Repeat("━", filled) + dim + strings.Repeat("─", bw-filled) + reset,
-		6: dim + fmt.Sprintf("%s / %s   VOL %d%%", humanDuration(m.snapshot.Time), humanDuration(dur), m.volume) + reset}
+		6: dim + truncate(clock, infoW) + reset}
 	if g.short {
-		info = map[int]string{0: accent + state + reset, 1: bright + truncate(title, infoW) + reset, 2: dim + truncate(artist, infoW) + reset, 4: accent + fmt.Sprintf("%s / %s · %d%%", humanDuration(m.snapshot.Time), humanDuration(dur), m.volume) + reset}
+		info = map[int]string{0: accent + state + reset, 1: bright + truncate(title, infoW) + reset, 2: dim + truncate(artist, infoW) + reset, 4: accent + truncate(clock, infoW) + reset}
 	}
 	for r := 0; r < g.infoH; r++ {
 		put(3+r, strings.Repeat(" ", g.infoX)+info[r])
@@ -314,7 +327,18 @@ func (m *model) draw() {
 		return
 	}
 	m.lastDraw = time.Now()
-	g := layout(m.width, m.height, m.cfg.ThumbnailSize)
+	aspect := 16.0 / 9
+	if m.art != nil && m.art.Bounds().Dx() > 0 && m.art.Bounds().Dy() > 0 {
+		aspect = float64(m.art.Bounds().Dx()) / float64(m.art.Bounds().Dy())
+	}
+	cw, ch := 1, 2
+	if m.cfg.ImageMode == "sixel" {
+		cw, ch = m.renderedGeometry.cellW, m.renderedGeometry.cellH
+		if m.artDirty || m.width-1 != m.renderedGeometry.w || m.height != m.renderedGeometry.h || cw < 1 || ch < 1 || cw == 1 {
+			cw, ch = cellSize()
+		}
+	}
+	g := artworkLayout(m.width, m.height, m.cfg.ThumbnailSize, aspect, cw, ch)
 	rows := m.frame(g)
 	if m.width < 38 || m.height < 16 {
 		rows = make([]string, g.h)
@@ -349,7 +373,7 @@ func (m *model) draw() {
 		}
 		if m.art != nil && m.cfg.ImageMode != "off" {
 			if m.cfg.ImageMode == "sixel" {
-				cw, ch := cellSize()
+				cw, ch := g.cellW, g.cellH
 				img := fitImage(m.art, g.artW*cw, g.artH*ch)
 				var b bytes.Buffer
 				if new(sixel.Encoder).Encode(&b, img) == nil {
