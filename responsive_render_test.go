@@ -11,49 +11,72 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-func TestResponsiveGeometryBounds(t *testing.T) {
+func TestDetectAdaptiveLayoutModes(t *testing.T) {
+	tests := []struct {
+		w, h int
+		want layoutMode
+	}{
+		{160, 45, modeFull},
+		{120, 32, modeFull},
+		{100, 32, modeMedium},
+		{80, 24, modeMedium},
+		{72, 22, modeMedium},
+		{71, 45, modeCompact},
+		{50, 25, modeCompact},
+		{60, 18, modeCompact},
+		{44, 45, modeUltra},
+		{60, 15, modeUltra},
+	}
+	for _, tt := range tests {
+		if got := detectLayoutMode(tt.w, tt.h); got != tt.want {
+			t.Errorf("detectLayoutMode(%d, %d) = %s, want %s", tt.w, tt.h, got, tt.want)
+		}
+	}
+}
+
+func TestAdaptiveGeometryBounds(t *testing.T) {
 	for w := 38; w <= 200; w++ {
 		for h := 16; h <= 100; h++ {
 			g := layout(w, h, 52)
 			if g.narrow != (w < 72) || g.short != (h < 23) {
-				t.Fatalf("width/height coupled at %dx%d: %+v", w, h, g)
+				t.Fatalf("width/height flags changed at %dx%d: %+v", w, h, g)
 			}
-			if g.artW < 1 || g.artH < 1 || 2+g.artW >= g.infoX || g.infoX >= g.w || 3+g.artH >= g.listY {
-				t.Fatalf("art bounds at %dx%d: %+v", w, h, g)
+			if g.artW < 1 || g.artH < 1 || g.artX < 0 || g.artX+g.artW > g.w ||
+				g.infoX < 0 || g.infoX >= g.w || g.infoY < 0 || g.infoY >= g.h {
+				t.Fatalf("art/info bounds at %dx%d: %+v", w, h, g)
+			}
+			if g.mode != modeUltra && g.infoX <= g.artX+g.artW {
+				t.Fatalf("metadata overlaps artwork at %dx%d: %+v", w, h, g)
 			}
 			if g.spectrumX < 0 || g.spectrumW < 1 || g.spectrumX+g.spectrumW > g.w ||
-				g.spectrumTop < 3+g.infoH || g.spectrumHeight < 1 ||
-				g.spectrumBottom != g.listY-1 || g.spectrumHeight != g.spectrumBottom-g.spectrumTop || g.listY >= h-3 {
-				t.Fatalf("spectrum/list bounds at %dx%d: %+v", w, h, g)
+				g.spectrumTop < 3+g.artH || g.spectrumHeight < 1 ||
+				g.spectrumBottom != g.spectrumTop+g.spectrumHeight || g.spectrumBottom > h {
+				t.Fatalf("spectrum bounds at %dx%d: %+v", w, h, g)
 			}
-			if g.spectrumTop < 3+g.artH && g.spectrumX < 2+g.artW {
-				t.Fatalf("spectrum overlaps art at %dx%d: %+v", w, h, g)
+			if g.showLists {
+				if g.listY <= g.spectrumBottom || g.listY >= h || g.listRows < 0 ||
+					g.listY+1+g.listRows+g.footerRows > h {
+					t.Fatalf("list bounds at %dx%d: %+v", w, h, g)
+				}
+			} else if g.listY != 0 || g.listRows != 0 || g.footerRows != 0 {
+				t.Fatalf("hidden regions reserved space at %dx%d: %+v", w, h, g)
 			}
 		}
 	}
 }
 
-func TestTallNarrowPaneUsesRemainingHeight(t *testing.T) {
-	for _, w := range []int{38, 55, 71} {
-		var previous geometry
-		for _, h := range []int{32, 45, 60, 90} {
-			g := layout(w, h, 52)
-			if !g.narrow || g.short || g.artH > 7 || g.spectrumHeight < h-23 || g.listY != h-10 {
-				t.Fatalf("unused tall-pane space at %dx%d: %+v", w, h, g)
-			}
-			if previous.h > 0 && g.spectrumHeight-previous.spectrumHeight != h-previous.h {
-				t.Fatalf("extra rows not assigned to spectrum: %+v -> %+v", previous, g)
-			}
-			previous = g
-		}
+func TestAdaptiveModeGeometryIntent(t *testing.T) {
+	if g := layout(60, 45, 52); g.mode != modeCompact || g.showLists || g.spectrumHeight != 14 {
+		t.Fatalf("tall narrow pane should prioritize now-playing view: %+v", g)
 	}
-	for _, wh := range [][2]int{{80, 24}, {120, 32}, {160, 45}} {
-		g := layout(wh[0], wh[1], 52)
-		base := min(14, max(8, wh[1]-17))
-		oldList := max(6+base, wh[1]-10)
-		if g.artW != max(20, wh[0]/2-3) || g.artH != max(base, oldList-6) || g.listY != oldList {
-			t.Fatalf("wide artwork/list moved: %+v", g)
-		}
+	if g := layout(80, 24, 52); g.mode != modeMedium || !g.showLists || !g.singleList {
+		t.Fatalf("medium pane should keep one list panel: %+v", g)
+	}
+	if g := layout(160, 45, 52); g.mode != modeFull || !g.showLists || g.singleList {
+		t.Fatalf("fullscreen should keep the full layout: %+v", g)
+	}
+	if g := layout(44, 45, 52); g.mode != modeUltra || g.showLists || g.showFooter || g.showStatus || g.spectrumHeight != g.h-g.spectrumTop-1 {
+		t.Fatalf("ultra compact pane should hide secondary regions: %+v", g)
 	}
 }
 
@@ -86,8 +109,12 @@ func TestResponsiveFrameSpectrumAndLists(t *testing.T) {
 						t.Fatalf("missing full-height spectrum: %v %s row %d", wh, style, y)
 					}
 				}
-				if strings.Contains(rows[g.listY], "█") || !strings.Contains(rows[g.h-2], "STATUS") {
-					t.Fatalf("list/status overwritten: %v", wh)
+				if g.showLists {
+					if strings.Contains(rows[g.listY], "█") || !strings.Contains(rows[g.h-2], "STATUS") {
+						t.Fatalf("list/status overwritten: %v", wh)
+					}
+				} else if strings.Contains(strings.Join(rows, "\n"), "SEARCH RESULTS") {
+					t.Fatalf("hidden list rendered in small mode: %v", wh)
 				}
 			}
 		}
@@ -172,11 +199,7 @@ func TestIncrementalSpectrumClearsBeyondArtwork(t *testing.T) {
 		}
 		g := layout(m.width, m.height, 52)
 		for y := g.spectrumTop; y < g.spectrumBottom; y++ {
-			x := 0
-			if y < 3+g.artH {
-				x = g.infoX
-			}
-			cursor := fmt.Sprintf("\x1b[%d;%dH", y+1, x+1)
+			cursor := fmt.Sprintf("\x1b[%d;1H", y+1)
 			start := strings.Index(out, cursor)
 			if start < 0 {
 				t.Fatalf("uncleared row %d at %v", y, wh)
@@ -200,10 +223,8 @@ func TestResizeRedrawBoundsAndArtwork(t *testing.T) {
 	m.cfg.ImageMode = "sixel"
 	m.art = image.NewRGBA(image.Rect(0, 0, 16, 9))
 	m.bars = []float64{.2, .8, 1}
-	cursorRE := regexp.MustCompile("\x1b\\[([0-9]+);([0-9]+)H")
+	cursorRE := regexp.MustCompile("\\x1b\\[([0-9]+);([0-9]+)H")
 	for _, wh := range [][2]int{{120, 45}, {55, 45}, {38, 45}, {38, 16}, {120, 16}, {120, 23}, {55, 60}, {120, 60}, {37, 15}, {38, 16}, {120, 45}} {
-		// Direct geometry changes also exercise the safety net independently
-		// of WindowSizeMsg's explicit rendered=nil invalidation.
 		m.width, m.height = wh[0], wh[1]
 		out := renderCapture(t, &m, f)
 		if !strings.Contains(out, "\x1b[2J") {

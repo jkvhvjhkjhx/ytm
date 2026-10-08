@@ -42,61 +42,136 @@ func truncate(s string, n int) string {
 }
 func pad(s string, n int) string { return s + strings.Repeat(" ", max(0, n-ansi.StringWidth(s))) }
 
+type layoutMode string
+
+const (
+	modeFull    layoutMode = "FULL"
+	modeMedium  layoutMode = "MEDIUM"
+	modeCompact layoutMode = "COMPACT"
+	modeUltra   layoutMode = "ULTRA_COMPACT"
+)
+
 type geometry struct {
-	w, h, artW, artH, infoX, listY int
-	infoH                          int
-	spectrumX, spectrumW           int
-	spectrumTop, spectrumBottom    int // terminal rows, bottom exclusive
-	spectrumHeight                 int
-	narrow, short                  bool
+	mode                                          layoutMode
+	w, h                                          int
+	artX, artW, artH, infoX, infoY, infoH         int
+	listY, listRows                               int
+	spectrumX, spectrumW                          int
+	spectrumTop, spectrumBottom                   int // terminal rows, bottom exclusive
+	spectrumHeight                                int
+	footerRows                                    int
+	showLists, showFooter, showStatus, singleList bool
+	narrow, short                                 bool
 }
 
-func layout(w, h, size int) geometry {
-	g := geometry{w: max(1, w-1), h: max(1, h), narrow: w < 72, short: h < 23}
+func detectLayoutMode(w, h int) layoutMode {
+	switch {
+	case w < 45 || h < 16:
+		return modeUltra
+	case w >= 110 && h >= 28:
+		return modeFull
+	case w >= 72 && h >= 22:
+		return modeMedium
+	default:
+		return modeCompact
+	}
+}
+
+func artworkRows(width int, aspect float64) int {
+	if aspect <= 0 || math.IsNaN(aspect) || math.IsInf(aspect, 0) {
+		aspect = 16.0 / 9
+	}
+	// Half-block cells represent two vertical pixels. fitImage uses the same
+	// cell box, so this keeps the image's original aspect ratio.
+	return max(1, int(math.Ceil(float64(width)/(aspect*2))))
+}
+
+func artworkWidth(mode layoutMode, w int) int {
+	switch mode {
+	case modeFull:
+		return clamp(w/4, 30, 34)
+	case modeMedium:
+		return clamp(w/3, 26, 34)
+	case modeCompact:
+		return clamp(w/2, 22, 28)
+	default:
+		return clamp(w-8, 18, 28)
+	}
+}
+
+func layout(w, h, size int) geometry { return adaptiveLayout(w, h, 16.0/9, size) }
+
+func adaptiveLayout(w, h int, aspect float64, size int) geometry {
+	g := geometry{mode: detectLayoutMode(w, h), w: max(1, w-1), h: max(1, h), artX: 2,
+		narrow: w < 72, short: h < 23}
 	if w < 38 || h < 16 {
-		g.listY = max(0, g.h-3)
 		return g
 	}
-	// Width chooses the columns; height independently chooses metadata density.
-	if g.narrow {
-		g.artW = min(24, max(10, w/3))
-	} else {
-		g.artW = max(20, w/2-3)
-	}
-	g.infoX = g.artW + 6
+	g.artW = min(artworkWidth(g.mode, w), max(1, g.w-g.artX-1))
+	g.infoX = g.artX + g.artW + 5
+	g.infoY = 3
+	g.footerRows = 2
+	g.showFooter, g.showStatus = true, true
 	g.infoH = 7
-	if g.short {
-		g.infoH = 5
-		g.artH = min(7, max(3, h-12))
-		g.listY = 6 + g.artH
-	} else {
-		baseH := min(14, max(8, h-17))
-		if g.narrow {
-			// A tall pane gives its surplus rows to the spectrum, not the image.
-			g.artH = 7
-			g.listY = max(14, h-10)
+	maxArtH, spectrumMax, minimumList := 12, 12, 2
+	spectrumGap := 1
+	switch g.mode {
+	case modeMedium:
+		g.singleList, maxArtH, spectrumMax, minimumList = true, 10, 10, 1
+	case modeCompact:
+		g.infoH, g.showLists, g.showFooter, g.showStatus = 4, false, false, false
+		g.footerRows, maxArtH, spectrumMax = 0, 9, 14
+	case modeUltra:
+		g.infoH, g.showLists, g.showFooter, g.showStatus = 1, false, false, false
+		g.footerRows, maxArtH, spectrumMax, spectrumGap = 0, 8, 14, 1
+		// Keep the single title/status line readable even when the artwork
+		// occupies almost the entire narrow pane.
+		g.infoX, g.infoY = 2, 2
+	}
+	if g.mode == modeFull || g.mode == modeMedium {
+		g.showLists = true
+	}
+	g.artH = min(maxArtH, artworkRows(g.artW, aspect))
+	// On short terminals preserve the regions in order while reducing the
+	// artwork first. Width and height remain independent breakpoint inputs.
+	minSpectrum := 1
+	if g.mode == modeFull {
+		minSpectrum = 6
+	} else if g.mode == modeMedium {
+		minSpectrum = 4
+	}
+	available := h - 3 - g.artH - spectrumGap - g.footerRows - minimumList - 1
+	if available < minSpectrum {
+		g.artH = max(3, g.artH-(minSpectrum-available))
+		available = h - 3 - g.artH - spectrumGap - g.footerRows - minimumList - 1
+	}
+	g.spectrumTop = 3 + g.artH + spectrumGap
+	if g.spectrumTop < 3+g.infoH {
+		g.spectrumTop = 3 + g.infoH
+	}
+	// The analyzer uses the full inner content width in every mode. Small
+	// layouts only change which surrounding regions are visible.
+	g.spectrumX, g.spectrumW = 2, max(1, g.w-4)
+	if g.mode == modeCompact || g.mode == modeUltra {
+		if g.mode == modeUltra {
+			// Ultra mode has no list/footer to consume vertical space. Let the
+			// analyzer fill the remaining pane instead of leaving a large blank
+			// area in a narrow-but-tall split.
+			g.spectrumHeight = max(1, h-g.spectrumTop-1)
 		} else {
-			// Preserve the approved wide layout's artwork and list geometry.
-			g.listY = max(6+baseH, h-10)
-			g.artH = max(baseH, g.listY-6)
+			g.spectrumHeight = min(spectrumMax, max(1, h-g.spectrumTop-1))
 		}
+		g.spectrumBottom = g.spectrumTop + g.spectrumHeight
+		return g
 	}
-	// One blank row before the list; status/footer occupy the final two rows.
-	g.listY = min(g.listY, h-5)
+	// Lists stay anchored below the analyzer and above status/footer. In FULL
+	// the analyzer may grow to 12 rows; MEDIUM gives one panel a little less.
+	listLimit := h - g.footerRows - 1 - minimumList
+	desiredList := g.spectrumTop + min(spectrumMax, max(1, available)) + 1
+	g.listY = min(listLimit, desiredList)
 	g.spectrumBottom = g.listY - 1
-	if g.narrow || g.short || g.artH <= 9 {
-		// Once below both artwork and metadata the analyzer can span the pane.
-		g.spectrumX, g.spectrumW = 2, g.w-4
-		g.spectrumTop = max(3+g.artH, 3+g.infoH)
-		if g.narrow && !g.short {
-			g.spectrumTop++
-		}
-	} else {
-		g.spectrumX, g.spectrumW = g.infoX, g.w-g.infoX-1
-		g.spectrumTop = 3 + g.infoH + 2
-	}
-	g.spectrumTop = min(g.spectrumTop, g.spectrumBottom)
-	g.spectrumHeight = max(0, g.spectrumBottom-g.spectrumTop)
+	g.spectrumHeight = max(1, g.spectrumBottom-g.spectrumTop)
+	g.listRows = max(0, h-g.listY-1-g.footerRows)
 	return g
 }
 func (m *model) frame(g geometry) []string {
@@ -137,17 +212,41 @@ func (m *model) frame(g geometry) []string {
 	}
 	bw := max(1, infoW-14)
 	filled := int(prog * float64(bw))
-	info := map[int]string{0: accent + state + reset, 2: bright + truncate(title, infoW) + reset, 3: dim + truncate(artist, infoW) + reset, 5: accent + strings.Repeat("━", filled) + dim + strings.Repeat("─", bw-filled) + reset,
-		6: dim + fmt.Sprintf("%s / %s   VOL %d%%", humanDuration(m.snapshot.Time), humanDuration(dur), m.volume) + reset}
-	if g.short {
-		info = map[int]string{0: accent + state + reset, 1: bright + truncate(title, infoW) + reset, 2: dim + truncate(artist, infoW) + reset, 4: accent + fmt.Sprintf("%s / %s · %d%%", humanDuration(m.snapshot.Time), humanDuration(dur), m.volume) + reset}
+	clock := fmt.Sprintf("%s / %s   VOL %d%%", humanDuration(m.snapshot.Time), humanDuration(dur), m.volume)
+	if g.mode == modeCompact {
+		clock = fmt.Sprintf("%s/%s %d%%", humanDuration(m.snapshot.Time), humanDuration(dur), m.volume)
+	}
+	info := map[int]string{}
+	switch g.mode {
+	case modeFull, modeMedium:
+		info = map[int]string{0: accent + state + reset, 2: bright + truncate(title, infoW) + reset, 3: dim + truncate(artist, infoW) + reset, 5: accent + strings.Repeat("━", filled) + dim + strings.Repeat("─", bw-filled) + reset, 6: dim + truncate(clock, infoW) + reset}
+	case modeCompact:
+		info = map[int]string{0: accent + state + reset, 1: bright + truncate(title, infoW) + reset, 2: dim + truncate(artist, infoW) + reset, 3: accent + truncate(clock, infoW) + reset}
+	case modeUltra:
+		line := title
+		if m.current.Title == "" {
+			line = state
+		}
+		info = map[int]string{0: bright + truncate(line, infoW) + reset}
 	}
 	for r := 0; r < g.infoH; r++ {
-		put(3+r, strings.Repeat(" ", g.infoX)+info[r])
+		put(g.infoY+r, strings.Repeat(" ", g.infoX)+info[r])
 	}
 	for r := 0; r < g.spectrumHeight; r++ {
 		put(g.spectrumTop+r, strings.Repeat(" ", g.spectrumX)+
 			spectrumLine(m.bars, g.spectrumW, g.spectrumHeight, r, m.cfg.VisualizerStyle, spectrumColor))
+	}
+	if !g.showLists {
+		if m.inputMode {
+			put(g.h-2, " "+accent+"SEARCH  "+reset+m.editorView(max(1, g.w-10)))
+			if g.h > 1 {
+				put(g.h-1, dim+" Enter search · Esc back"+reset)
+			}
+		}
+		for i, s := range rows {
+			rows[i] = ansi.Truncate(s, g.w, "")
+		}
+		return rows
 	}
 	searchLabel := "SEARCH RESULTS"
 	queueLabel := m.playlistLabel()
@@ -156,7 +255,7 @@ func (m *model) frame(g geometry) []string {
 	} else {
 		searchLabel = "› " + searchLabel
 	}
-	wide := g.w >= 90
+	wide := g.mode == modeFull && g.w >= 90 && !g.singleList
 	half := (g.w - 5) / 2
 	if wide {
 		put(g.listY, " "+accent+pad(searchLabel, half)+dim+" │ "+purple+queueLabel+reset)
@@ -170,7 +269,7 @@ func (m *model) frame(g geometry) []string {
 	// The main screen no longer reserves rows for persistent key hints. Those
 	// rows are available to the results/playlist lists; help remains in T's
 	// separate overlay.
-	count := max(0, g.h-g.listY-3)
+	count := g.listRows
 	list := func(ts []Track, selected int, focus, playlist bool, width int) []string {
 		visible := count
 		if playlist {
@@ -227,11 +326,15 @@ func (m *model) frame(g geometry) []string {
 	if m.searching {
 		status = "Searching YouTube " + []string{"·", "··", "···"}[(time.Now().UnixMilli()/300)%3]
 	}
-	put(g.h-2, " "+col+truncate(status, g.w-2)+reset)
+	if g.showStatus {
+		put(g.h-2, " "+col+truncate(status, g.w-2)+reset)
+	}
 	if m.inputMode {
 		put(g.h-2, " "+accent+"SEARCH  "+reset+m.editorView(max(1, g.w-10)))
-		put(g.h-1, dim+" Ctrl+A select · Ctrl+C copy · Ctrl+V paste · Enter search · Esc back"+reset)
-	} else {
+		if g.h > 1 {
+			put(g.h-1, dim+" Ctrl+A select · Ctrl+C copy · Ctrl+V paste · Enter search · Esc back"+reset)
+		}
+	} else if g.showFooter {
 		put(g.h-1, " "+dim+strings.Repeat("─", max(0, g.w-2))+reset)
 	}
 	for i, s := range rows {
@@ -314,7 +417,11 @@ func (m *model) draw() {
 		return
 	}
 	m.lastDraw = time.Now()
-	g := layout(m.width, m.height, m.cfg.ThumbnailSize)
+	aspect := 16.0 / 9
+	if m.art != nil && m.art.Bounds().Dx() > 0 && m.art.Bounds().Dy() > 0 {
+		aspect = float64(m.art.Bounds().Dx()) / float64(m.art.Bounds().Dy())
+	}
+	g := adaptiveLayout(m.width, m.height, aspect, m.cfg.ThumbnailSize)
 	rows := m.frame(g)
 	if m.width < 38 || m.height < 16 {
 		rows = make([]string, g.h)
