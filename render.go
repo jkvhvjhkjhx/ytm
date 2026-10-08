@@ -44,36 +44,59 @@ func pad(s string, n int) string { return s + strings.Repeat(" ", max(0, n-ansi.
 
 type geometry struct {
 	w, h, artW, artH, infoX, listY int
-	compact                        bool
+	infoH                          int
+	spectrumX, spectrumW           int
+	spectrumTop, spectrumBottom    int // terminal rows, bottom exclusive
+	spectrumHeight                 int
+	narrow, short                  bool
 }
 
 func layout(w, h, size int) geometry {
-	g := geometry{w: max(1, w-1), h: max(1, h), compact: w < 72 || h < 23}
-	// Keep the list/footer density stable while allowing the artwork pane to
-	// consume the otherwise unused vertical space above the lists. The right
-	// playing pane keeps the same x origin; only the left artwork canvas grows.
-	baseH := 0
-	if g.compact {
+	g := geometry{w: max(1, w-1), h: max(1, h), narrow: w < 72, short: h < 23}
+	if w < 38 || h < 16 {
+		g.listY = max(0, g.h-3)
+		return g
+	}
+	// Width chooses the columns; height independently chooses metadata density.
+	if g.narrow {
 		g.artW = min(24, max(10, w/3))
-		baseH = min(7, max(3, h-12))
 	} else {
-		baseH = min(14, max(8, h-17))
-		// The left pane ends before the playing pane. Use all columns that can
-		// be occupied without touching that pane, with a small visual gutter.
 		g.artW = max(20, w/2-3)
 	}
-	if g.compact {
-		g.artH = baseH
-	} else {
-		// Preserve the existing 7-row result list and footer while moving its
-		// top down on taller terminals. This makes the art area responsive.
-		g.listY = max(4+baseH+2, h-10)
-		g.artH = max(baseH, g.listY-6)
-	}
 	g.infoX = g.artW + 6
-	if g.compact {
-		g.listY = 4 + g.artH + 2
+	g.infoH = 7
+	if g.short {
+		g.infoH = 5
+		g.artH = min(7, max(3, h-12))
+		g.listY = 6 + g.artH
+	} else {
+		baseH := min(14, max(8, h-17))
+		if g.narrow {
+			// A tall pane gives its surplus rows to the spectrum, not the image.
+			g.artH = 7
+			g.listY = max(14, h-10)
+		} else {
+			// Preserve the approved wide layout's artwork and list geometry.
+			g.listY = max(6+baseH, h-10)
+			g.artH = max(baseH, g.listY-6)
+		}
 	}
+	// One blank row before the list; status/footer occupy the final two rows.
+	g.listY = min(g.listY, h-5)
+	g.spectrumBottom = g.listY - 1
+	if g.narrow || g.short || g.artH <= 9 {
+		// Once below both artwork and metadata the analyzer can span the pane.
+		g.spectrumX, g.spectrumW = 2, g.w-4
+		g.spectrumTop = max(3+g.artH, 3+g.infoH)
+		if g.narrow && !g.short {
+			g.spectrumTop++
+		}
+	} else {
+		g.spectrumX, g.spectrumW = g.infoX, g.w-g.infoX-1
+		g.spectrumTop = 3 + g.infoH + 2
+	}
+	g.spectrumTop = min(g.spectrumTop, g.spectrumBottom)
+	g.spectrumHeight = max(0, g.spectrumBottom-g.spectrumTop)
 	return g
 }
 func (m *model) frame(g geometry) []string {
@@ -116,23 +139,15 @@ func (m *model) frame(g geometry) []string {
 	filled := int(prog * float64(bw))
 	info := map[int]string{0: accent + state + reset, 2: bright + truncate(title, infoW) + reset, 3: dim + truncate(artist, infoW) + reset, 5: accent + strings.Repeat("━", filled) + dim + strings.Repeat("─", bw-filled) + reset,
 		6: dim + fmt.Sprintf("%s / %s   VOL %d%%", humanDuration(m.snapshot.Time), humanDuration(dur), m.volume) + reset}
-	if g.compact {
+	if g.short {
 		info = map[int]string{0: accent + state + reset, 1: bright + truncate(title, infoW) + reset, 2: dim + truncate(artist, infoW) + reset, 4: accent + fmt.Sprintf("%s / %s · %d%%", humanDuration(m.snapshot.Time), humanDuration(dur), m.volume) + reset}
 	}
-	specH := max(2, g.artH-9)
-	for r := 0; r < g.artH; r++ {
-		right := info[r]
-		if !g.compact && r >= 9 {
-			right = spectrumLine(m.bars, infoW, specH, r-9, m.cfg.VisualizerStyle, spectrumColor)
-		}
-		put(3+r, strings.Repeat(" ", g.infoX)+right)
+	for r := 0; r < g.infoH; r++ {
+		put(3+r, strings.Repeat(" ", g.infoX)+info[r])
 	}
-	if g.compact {
-		put(3+g.artH, spectrumLine(m.bars, g.w-4, 1, 0, m.cfg.VisualizerStyle, spectrumColor))
-	} else if g.artH <= 9 {
-		for r := 0; r < 2; r++ {
-			put(3+g.artH+r, "  "+spectrumLine(m.bars, g.w-4, 2, r, m.cfg.VisualizerStyle, spectrumColor))
-		}
+	for r := 0; r < g.spectrumHeight; r++ {
+		put(g.spectrumTop+r, strings.Repeat(" ", g.spectrumX)+
+			spectrumLine(m.bars, g.spectrumW, g.spectrumHeight, r, m.cfg.VisualizerStyle, spectrumColor))
 	}
 	searchLabel := "SEARCH RESULTS"
 	queueLabel := m.playlistLabel()
@@ -248,6 +263,9 @@ func (m *model) editorView(width int) string {
 	return ansi.Truncate(out.String(), width, "")
 }
 func spectrumLine(bars []float64, w, h, row int, style string, tint ...[]string) string {
+	if w < 1 || h < 1 || row < 0 || row >= h {
+		return ""
+	}
 	// One glyph per band keeps the spectrum dense and fine-grained. CAVA emits
 	// 64 bands, so wider terminals can show the full analyzer without the old
 	// spacer column making it look sparse.
@@ -264,8 +282,10 @@ func spectrumLine(bars []float64, w, h, row int, style string, tint ...[]string)
 		}
 		level := v * float64(h)
 		if style == "mirror" {
-			level = v * float64(h) / 2
-			level -= math.Abs(float64(row) - float64(h-1)/2)
+			// Intersect this row with a centered bar. Full scale reaches both
+			// edges, and partial cells have equal coverage above/below center.
+			top, bottom := (float64(h)-level)/2, (float64(h)+level)/2
+			level = math.Min(float64(row+1), bottom) - math.Max(float64(row), top)
 		} else {
 			level -= float64(h - 1 - row)
 		}
@@ -273,7 +293,14 @@ func spectrumLine(bars []float64, w, h, row int, style string, tint ...[]string)
 		if part > 0 && len(tint) > 0 && len(tint[0]) > 0 {
 			out.WriteString(tint[0][i*len(tint[0])/n])
 		}
-		out.WriteRune([]rune(" ▁▂▃▄▅▆▇█")[part])
+		if style == "mirror" && row >= (h+1)/2 && part > 0 && part < 8 {
+			// Complement a lower block to draw the matching upper partial cell.
+			out.WriteString("\x1b[7m")
+			out.WriteRune([]rune(" ▁▂▃▄▅▆▇█")[8-part])
+			out.WriteString("\x1b[27m")
+		} else {
+			out.WriteRune([]rune(" ▁▂▃▄▅▆▇█")[part])
+		}
 		// Keep the original one-cell gap between independent bars. This fills
 		// the full visualizer span without drawing any guide/grid characters.
 		if i+1 < n {
@@ -293,7 +320,8 @@ func (m *model) draw() {
 		rows = make([]string, g.h)
 		rows[0] = truncate("YTM · enlarge terminal to 38 × 16", g.w)
 	}
-	full := len(m.rendered) != len(rows)
+	// Row count alone misses width-only resizes and their relocated art/spectrum.
+	full := len(m.rendered) != len(rows) || m.renderedGeometry != g
 	var out strings.Builder
 	if full {
 		out.WriteString("\x1b[2J")
@@ -305,12 +333,15 @@ func (m *model) draw() {
 		}
 		x := 0
 		if y >= 3 && y < 3+g.artH && m.width >= 38 && m.height >= 16 && !full {
+			// Protect only rows intersecting the artwork. Spectrum rows below
+			// its bottom are refreshed from column zero, including blank bars.
 			x = g.infoX
 			s = ansi.Cut(s, x, g.w)
 		}
 		fmt.Fprintf(&out, "\x1b[%d;%dH%s\x1b[0m\x1b[K", y+1, x+1, s)
 	}
 	m.rendered = rows
+	m.renderedGeometry = g
 	if m.artDirty && m.width >= 38 && m.height >= 16 {
 		// Clear only the artwork rectangle on image changes, never on spectrum frames.
 		for r := 0; r < g.artH; r++ {

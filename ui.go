@@ -56,6 +56,7 @@ type model struct {
 	searchCancel                           context.CancelFunc
 	ctx                                    context.Context
 	rendered                               []string
+	renderedGeometry                       geometry
 	output                                 *os.File
 	persist                                bool
 	autoPlay                               bool
