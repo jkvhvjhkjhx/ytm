@@ -14,6 +14,8 @@ eye-catching interface.
 
 ![YTM playing YOASOBI in Windows Terminal](docs/images/ytm-demo-2.jpg)
 
+![Full YTM player view with queue and spectrum](docs/images/ytm-demo-full.jpg)
+
 ## What it does
 
 - Search YouTube or open a YouTube / YouTube Music video URL.
