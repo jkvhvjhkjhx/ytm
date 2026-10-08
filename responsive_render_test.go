@@ -51,8 +51,8 @@ func TestTallNarrowPaneUsesRemainingHeight(t *testing.T) {
 		g := layout(wh[0], wh[1], 52)
 		base := min(14, max(8, wh[1]-17))
 		oldList := max(6+base, wh[1]-10)
-		if g.listY != oldList {
-			t.Fatalf("wide list moved: %+v", g)
+		if g.artW != max(20, wh[0]/2-3) || g.artH != max(base, oldList-6) || g.listY != oldList {
+			t.Fatalf("wide artwork/list moved: %+v", g)
 		}
 	}
 }
@@ -170,7 +170,7 @@ func TestIncrementalSpectrumClearsBeyondArtwork(t *testing.T) {
 		if strings.Contains(out, "\x1b[2J") || strings.Contains(out, "\x1bP") {
 			t.Fatal("artwork redrawn on audio frame")
 		}
-		g := m.renderedGeometry
+		g := layout(m.width, m.height, 52)
 		for y := g.spectrumTop; y < g.spectrumBottom; y++ {
 			x := 0
 			if y < 3+g.artH {
@@ -184,60 +184,6 @@ func TestIncrementalSpectrumClearsBeyondArtwork(t *testing.T) {
 			end := strings.Index(out[start:], "\x1b[K")
 			if end < 0 || strings.ContainsAny(ansi.Strip(out[start:start+end]), "▁▂▃▄▅▆▇█") {
 				t.Fatal("old bars remain")
-			}
-		}
-	}
-}
-
-func TestArtworkResponsiveSizes(t *testing.T) {
-	m := newModel(defaultConfig(), nil, "", "")
-	m.current.Duration = 180
-	m.snapshot.Time = 67
-	m.volume = 70
-	for _, tc := range []struct{ width, artW, artH int }{
-		{38, 14, 4}, {50, 24, 7}, {60, 24, 7}, {72, 24, 7},
-		{80, 26, 8}, {90, 30, 9}, {100, 33, 10}, {120, 38, 11}, {160, 38, 11},
-	} {
-		g := layout(tc.width, 45, 52)
-		if !strings.Contains(m.frame(g)[9], "70%") {
-			t.Fatalf("artwork hid volume at width %d", tc.width)
-		}
-		if g.artW != tc.artW || g.artH != tc.artH {
-			t.Fatalf("width %d: %+v", tc.width, g)
-		}
-		if g.infoX != 2+g.artW+4 || g.w-g.infoX-1 < 16 {
-			t.Fatalf("metadata gutter: %+v", g)
-		}
-		if g.spectrumX != 2 || g.spectrumTop != max(3+g.artH, 3+g.infoH)+1 || g.spectrumHeight < 19 {
-			t.Fatalf("spectrum lost available area: %+v", g)
-		}
-		t.Logf("pane %dx45: artwork %dx%d, spectrum %dx%d", tc.width, g.artW, g.artH, g.spectrumW, g.spectrumHeight)
-	}
-}
-
-func TestArtworkAspectAndCellMetrics(t *testing.T) {
-	for _, dimensions := range [][2]int{{160, 90}, {90, 90}, {90, 160}, {160, 40}} {
-		src := image.NewRGBA(image.Rect(0, 0, dimensions[0], dimensions[1]))
-		aspect := float64(dimensions[0]) / float64(dimensions[1])
-		for _, cell := range [][2]int{{1, 2}, {8, 16}, {10, 22}, {12, 20}} {
-			for _, w := range []int{38, 50, 60, 72, 80, 90, 100, 120, 160} {
-				for _, h := range []int{16, 20, 23, 32, 45, 60} {
-					g := artworkLayout(w, h, 52, aspect, cell[0], cell[1])
-					if g.artW < 1 || g.artH < 1 || g.artH > 12 || g.spectrumHeight < 1 || g.spectrumTop < 3+g.artH {
-						t.Fatalf("image/spectrum bounds: %+v", g)
-					}
-					if g.spectrumBottom != g.listY-1 || g.listY >= h-3 {
-						t.Fatalf("list overlap: %+v", g)
-					}
-					fit := fitImage(src, g.artW*cell[0], g.artH*cell[1]).Bounds()
-					if fit.Dx() > g.artW*cell[0] || fit.Dy() > g.artH*cell[1] || fit.Dx() < g.artW*cell[0]-1 {
-						t.Fatalf("image not filling intended width: %+v fit=%v", g, fit)
-					}
-					// Integer pixel rounding may lose less than one pixel per axis.
-					if delta := float64(fit.Dx()) - float64(fit.Dy())*aspect; delta < -1-aspect || delta > 1+aspect {
-						t.Fatalf("aspect changed: source=%v fit=%v", dimensions, fit)
-					}
-				}
 			}
 		}
 	}

@@ -18,7 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const appVersion = "0.2.2"
+const appVersion = "0.2.3"
 
 type Config struct {
 	Theme              string `toml:"theme"`
