@@ -10,7 +10,7 @@ Want to listen to music in your terminal like on Linux, without the setup and
 customization? YTM is a great choice. One PowerShell command gets you this
 eye-catching interface.
 
-![YTM playing music in Windows Terminal](docs/images/ytm-demo.jpg)
+![YTM playing music in Windows Terminal](docs/images/anh-moi.jpg)
 
 ## What it does
 
