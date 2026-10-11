@@ -19,7 +19,7 @@ try {
   } finally {
     $env:GOOS, $env:GOARCH = $oldGOOS, $oldGOARCH
   }
-  foreach ($file in @('README.md','config.example.toml','install.ps1','THIRD-PARTY.md')) {
+  foreach ($file in @('README.md','config.example.toml','install.ps1','THIRD-PARTY.md','SECURITY.md')) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $stage
   }
   if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'LICENSE')) {
