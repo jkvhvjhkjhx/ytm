@@ -321,7 +321,7 @@ var errExit = errors.New("ytm:exit")
 
 func main() {
 	if err := startup(); err != nil && !errors.Is(err, errExit) {
-		fmt.Fprintf(os.Stderr, "\n\x1b[38;2;255;85;85mYTM\x1b[0m  %v\n", err)
+		fmt.Fprintf(os.Stderr, "\n\x1b[38;2;255;85;85mYTM\x1b[0m  %s\n", clean(err.Error()))
 		os.Exit(1)
 	}
 }

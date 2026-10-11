@@ -39,7 +39,7 @@ func normalizeTracks(ts []Track) {
 		}
 		seen[t.EntryID] = true
 		// Signed stream URLs belong only to the extractor/player.
-		if t.ID != "" {
+		if validVideoID(t.ID) {
 			t.URL = "https://www.youtube.com/watch?v=" + t.ID
 		} else {
 			t.URL = canonicalYouTubeURL(t.URL)

@@ -21,6 +21,10 @@ import (
 var mediaMu sync.Mutex
 
 func prepareAudio(ctx context.Context, ytdlp, runtime, url string) (string, error) {
+	url = canonicalYouTubeURL(url)
+	if url == "" {
+		return "", fmt.Errorf("audio requires a valid YouTube video URL")
+	}
 	mediaMu.Lock()
 	defer mediaMu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -40,10 +44,10 @@ func prepareAudio(ctx context.Context, ytdlp, runtime, url string) (string, erro
 		return "", err
 	}
 	defer os.RemoveAll(tmp) // only our unique staging directory
-	args := []string{"--ignore-config", "--js-runtimes", runtime, "--remote-components", "ejs:github",
+	args := []string{"--ignore-config", "--no-plugin-dirs", "--js-runtimes", runtime, "--remote-components", "ejs:github",
 		"--extractor-args", "youtube:player_client=web_embedded", "--no-playlist", "--no-progress", "--no-warnings",
 		"--socket-timeout", "15", "--retries", "3", "--fragment-retries", "3", "--max-filesize", "128M",
-		"--match-filter", "!is_live", "-f", "bestaudio", "-o", filepath.Join(tmp, "audio.%(ext)s"), url}
+		"--match-filter", "!is_live", "-f", "bestaudio", "-o", filepath.Join(tmp, "audio.%(ext)s"), "--", url}
 	cmd := exec.CommandContext(ctx, ytdlp, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 	out, err := cmd.CombinedOutput()

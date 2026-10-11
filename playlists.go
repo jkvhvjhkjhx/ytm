@@ -9,7 +9,7 @@ import (
 
 func canonicalYouTubeURL(raw string) string {
 	u, e := url.Parse(raw)
-	if e != nil {
+	if e != nil || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || (u.Port() != "" && u.Port() != "443" && u.Port() != "80") {
 		return ""
 	}
 	host := strings.ToLower(u.Hostname())
@@ -23,7 +23,7 @@ func canonicalYouTubeURL(raw string) string {
 			id = strings.TrimPrefix(strings.TrimPrefix(u.Path, "/shorts/"), "/embed/")
 		}
 	}
-	if id == "" || strings.ContainsAny(id, "/?&= ") {
+	if !validVideoID(id) {
 		return ""
 	}
 	return "https://www.youtube.com/watch?v=" + id
@@ -232,7 +232,7 @@ func (m *model) playlistRows(tracks []string, count, width int) []string {
 	if m.playlistDialog != "" {
 		prompt := "Name: "
 		if m.playlistDialog == "delete" {
-			prompt = "Delete " + m.playlists[m.playlistCursor].Name + "? Enter/Y · Esc/N"
+			prompt = "Delete " + clean(m.playlists[m.playlistCursor].Name) + "? Enter/Y · Esc/N"
 		} else {
 			tmp := *m
 			tmp.edit = m.playlistEdit

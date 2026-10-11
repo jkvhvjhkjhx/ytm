@@ -294,14 +294,17 @@ func searchYouTubeContext(parent context.Context, ytdlp, runtime, query string, 
 	u, _ := url.Parse(query)
 	videoURL := u != nil && (u.Scheme == "https" || u.Scheme == "http") && (u.Hostname() == "youtube.com" || u.Hostname() == "www.youtube.com" || u.Hostname() == "music.youtube.com" || u.Hostname() == "m.youtube.com" || u.Hostname() == "youtu.be")
 	if videoURL {
-		search = query
-		args = append(args, "--skip-download", "--no-warnings", "--no-progress", search)
+		search = canonicalYouTubeURL(query)
+		if search == "" {
+			return nil, fmt.Errorf("invalid YouTube video URL")
+		}
+		args = append(args, "--skip-download", "--no-warnings", "--no-progress", "--", search)
 	} else {
-		args = append(args, "--flat-playlist", "--skip-download", "--no-warnings", "--no-progress", search)
+		args = append(args, "--flat-playlist", "--skip-download", "--no-warnings", "--no-progress", "--", search)
 	}
 	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
-	args = append([]string{"--ignore-config", "--no-playlist", "--socket-timeout", "12", "--retries", "2"}, args...)
+	args = append([]string{"--ignore-config", "--no-plugin-dirs", "--no-playlist", "--socket-timeout", "12", "--retries", "2"}, args...)
 	cmd := exec.CommandContext(ctx, ytdlp, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 	var stderr strings.Builder
@@ -329,7 +332,7 @@ func searchYouTubeContext(parent context.Context, ytdlp, runtime, query string, 
 	tracks := make([]Track, 0, len(playlist.Entries))
 	for _, entry := range playlist.Entries {
 		id, _ := entry["id"].(string)
-		if id == "" {
+		if !validVideoID(id) {
 			continue
 		}
 		title, _ := entry["title"].(string)

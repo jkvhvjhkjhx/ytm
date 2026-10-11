@@ -20,7 +20,7 @@ var artCache = struct {
 	items map[string]image.Image
 	order []string
 }{items: make(map[string]image.Image)}
-var artHTTP = &http.Client{Timeout: 8 * time.Second}
+var artHTTP = &http.Client{Timeout: 8 * time.Second, CheckRedirect: checkArtworkRedirect}
 
 func fetchArtwork(url string) (image.Image, error) {
 	return fetchArtworkContext(context.Background(), url)
@@ -39,6 +39,9 @@ func decodeArtwork(data []byte) (image.Image, error) {
 func fetchArtworkContext(ctx context.Context, url string) (image.Image, error) {
 	req, e := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if e != nil {
+		return nil, e
+	}
+	if e = validateArtworkURL(req.URL); e != nil {
 		return nil, e
 	}
 	resp, e := artHTTP.Do(req)
