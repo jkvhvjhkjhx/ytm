@@ -105,7 +105,7 @@ func TestResponsiveFrameSpectrumAndLists(t *testing.T) {
 					continue
 				}
 				for y := g.spectrumTop; y < g.spectrumBottom; y++ {
-					if !strings.Contains(rows[y], "█") {
+					if !strings.ContainsAny(rows[y], "█┃│╵╷|#") {
 						t.Fatalf("missing full-height spectrum: %v %s row %d", wh, style, y)
 					}
 				}
@@ -126,14 +126,14 @@ func TestSpectrumHeightAndMirrorCoverage(t *testing.T) {
 		for _, v := range []float64{0, .2, .5, .8, 1} {
 			lastPart := -1
 			for y := 0; y < h; y++ {
-				line := ansi.Strip(spectrumLine([]float64{v}, 4, h, y, "spectrum"))
+				line := ansi.Strip(spectrumLine([]float64{v}, 1, h, y, "spectrum"))
 				part := strings.IndexRune(" ▁▂▃▄▅▆▇█", []rune(line)[0])
 				if part < lastPart {
 					t.Fatalf("spectrum did not grow bottom-up: h=%d v=%v", h, v)
 				}
 				lastPart = part
-				upper := spectrumLine([]float64{v}, 4, h, y, "mirror")
-				lower := spectrumLine([]float64{v}, 4, h, h-1-y, "mirror")
+				upper := spectrumLine([]float64{v}, 1, h, y, "mirror")
+				lower := spectrumLine([]float64{v}, 1, h, h-1-y, "mirror")
 				coverage := func(s string) int {
 					r := []rune(ansi.Strip(s))[0]
 					p := 0
@@ -205,7 +205,7 @@ func TestIncrementalSpectrumClearsBeyondArtwork(t *testing.T) {
 				t.Fatalf("uncleared row %d at %v", y, wh)
 			}
 			end := strings.Index(out[start:], "\x1b[K")
-			if end < 0 || strings.ContainsAny(ansi.Strip(out[start:start+end]), "▁▂▃▄▅▆▇█") {
+			if end < 0 || strings.ContainsAny(ansi.Strip(out[start:start+end]), "▁▂▃▄▅▆▇█┃│╵╷") {
 				t.Fatal("old bars remain")
 			}
 		}

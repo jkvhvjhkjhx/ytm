@@ -11,9 +11,12 @@ import (
 type spectrumState struct {
 	Target, Levels, Peaks []float64
 	Received, Last        time.Time
+	Metrics               spectrumMetrics
+	Gain                  float64
 }
 
 func (s *spectrumState) Push(v []float64, now time.Time) {
+	s.Metrics = measureSpectrum(v)
 	s.Target = s.Target[:0]
 	if len(v) == 0 {
 		s.Received = now
@@ -29,8 +32,16 @@ func (s *spectrumState) Push(v []float64, now time.Time) {
 		if i+1 < len(v) {
 			right = v[i+1]
 		}
-		level = .64*level + .18*left + .18*right
-		level *= .88
+		if math.IsNaN(level) || math.IsInf(level, 0) {
+			level = 0
+		}
+		if math.IsNaN(left) || math.IsInf(left, 0) {
+			left = 0
+		}
+		if math.IsNaN(right) || math.IsInf(right, 0) {
+			right = 0
+		}
+		level = .84*level + .08*left + .08*right
 		// Soft knee: large peaks still rise, but consume less height as they
 		// approach the top instead of being hard-clamped.
 		if level > .65 {
@@ -42,6 +53,9 @@ func (s *spectrumState) Push(v []float64, now time.Time) {
 	s.Received = now
 }
 func (s *spectrumState) Step(now time.Time, active bool) {
+	s.StepPreset(now, active, presetFor("classic"))
+}
+func (s *spectrumState) StepPreset(now time.Time, active bool, p barPreset) {
 	n := len(s.Target)
 	if len(s.Levels) != n {
 		s.Levels = make([]float64, n)
@@ -54,14 +68,41 @@ func (s *spectrumState) Step(now time.Time, active bool) {
 	dt = math.Min(.25, math.Max(.001, dt))
 	s.Last = now
 	fresh := active && now.Sub(s.Received) < 400*time.Millisecond
+	if s.Gain == 0 {
+		s.Gain = 1
+	}
+	desired := 1.
+	// CAVA already has autosens. A bounded, slow secondary gain helps quiet
+	// music without pumping noise or fabricating energy in zero bands.
+	if fresh && s.Metrics.Peak > .025 && s.Metrics.RMS > .006 && p.ID != "classic" {
+		reference := math.Max(s.Metrics.Peak*.65, s.Metrics.RMS*2)
+		desired = math.Max(1, math.Min(3, .65/math.Max(.02, reference)))
+	}
+	gainTau := .9
+	if desired < s.Gain {
+		gainTau = .12
+	}
+	s.Gain += (desired - s.Gain) * (1 - math.Exp(-dt/gainTau))
 	for i := 0; i < n; i++ {
 		target := 0.
 		if fresh {
-			target = math.Max(0, math.Min(1, s.Target[i]))
+			target = s.Target[i]
+			if p.ID == "classic" {
+				target *= .88
+			} else if target <= .012 {
+				target = 0
+			} else {
+				target *= s.Gain
+				if target > .8 {
+					excess := target - .8
+					target = .8 + excess/(1+5*excess)
+				}
+			}
+			target = math.Max(0, math.Min(1, target))
 		}
-		tau := .22
+		tau := p.Decay
 		if target > s.Levels[i] {
-			tau = .035
+			tau = p.Attack
 		}
 		s.Levels[i] += (target - s.Levels[i]) * (1 - math.Exp(-dt/tau))
 		if s.Levels[i] < .002 {

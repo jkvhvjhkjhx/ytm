@@ -21,6 +21,7 @@ import (
 const appVersion = "0.2.3"
 
 type Config struct {
+	VisualizerEffect   string `toml:"visualizer_effect"`
 	Theme              string `toml:"theme"`
 	VisualizerStyle    string `toml:"visualizer_style"`
 	VisualizerFPS      int    `toml:"visualizer_fps"`
@@ -37,7 +38,8 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{
-		Theme: "nocturne", VisualizerStyle: "spectrum", VisualizerFPS: 24,
+		VisualizerEffect: "glass",
+		Theme:            "nocturne", VisualizerStyle: "spectrum", VisualizerFPS: 24,
 		Volume: 70, ThumbnailSize: 52, ImageMode: "auto", DefaultSearchLimit: 10,
 	}
 }
@@ -80,6 +82,7 @@ func loadConfig() (Config, error) {
 	if cfg.DefaultSearchLimit < 1 || cfg.DefaultSearchLimit > 50 {
 		cfg.DefaultSearchLimit = defaults.DefaultSearchLimit
 	}
+	cfg.VisualizerEffect = presetFor(cfg.VisualizerEffect).ID
 	return cfg, nil
 }
 

@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"golang.org/x/sys/windows"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,7 +51,7 @@ func parseSpectrum(line string) []float64 {
 	parts := strings.Split(strings.TrimSpace(line), ";")
 	bars := make([]float64, 0, len(parts))
 	for _, part := range parts {
-		if v, err := strconv.ParseFloat(strings.TrimSpace(part), 64); err == nil {
+		if v, err := strconv.ParseFloat(strings.TrimSpace(part), 64); err == nil && !math.IsNaN(v) && !math.IsInf(v, 0) {
 			bars = append(bars, v/100)
 		}
 	}
@@ -79,10 +81,33 @@ func (m *model) startSpectrum(cavaPath string) error {
 	}
 	m.cavaCmd, m.cavaConfig, m.cavaLog = cmd, tmp, logFile
 	go func() {
+		lastMetrics := time.Time{}
+		var trace *os.File
+		if os.Getenv("YTM_SPECTRUM_TRACE") == "1" {
+			trace, _ = os.Create(filepath.Join(filepath.Dir(logPath), "spectrum-frames.jsonl"))
+			if trace != nil {
+				defer trace.Close()
+			}
+		}
+		traceCount := 0
 		scanner := bufio.NewScanner(stdout)
 		scanner.Buffer(make([]byte, 256), 8192)
 		for scanner.Scan() {
 			bars := parseSpectrum(scanner.Text())
+			if trace != nil && traceCount < 240 && len(bars) > 0 {
+				_ = json.NewEncoder(trace).Encode(bars)
+				traceCount++
+			}
+			if len(bars) > 0 && time.Since(lastMetrics) >= time.Second {
+				data, _ := json.MarshalIndent(struct {
+					Timestamp string `json:"timestamp"`
+					Source    string `json:"source"`
+					spectrumMetrics
+				}{time.Now().Format(time.RFC3339), "CAVA device-wide WASAPI loopback", measureSpectrum(bars)}, "", "  ")
+				// Bounded latest-frame diagnostic; no per-frame disk writes.
+				_ = os.WriteFile(filepath.Join(filepath.Dir(logPath), "spectrum-metrics.json"), data, 0600)
+				lastMetrics = time.Now()
+			}
 			if len(bars) > 0 && m.program != nil {
 				m.program.Send(spectrumMsg(bars))
 			}

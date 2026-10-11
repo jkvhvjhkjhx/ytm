@@ -175,7 +175,12 @@ func adaptiveLayout(w, h int, aspect float64, size int) geometry {
 	return g
 }
 func (m *model) frame(g geometry) []string {
-	spectrumColor := spectrumTint()
+	preset := presetFor(m.cfg.VisualizerEffect)
+	canvas := makeBarCanvas(m.bars, g.spectrumW, preset, detectBarCaps())
+	var spectrumColor []string
+	if preset.ID == "classic" {
+		spectrumColor = spectrumTint()
+	}
 	rows := make([]string, g.h)
 	put := func(y int, s string) {
 		if y >= 0 && y < len(rows) {
@@ -233,8 +238,12 @@ func (m *model) frame(g geometry) []string {
 		put(g.infoY+r, strings.Repeat(" ", g.infoX)+info[r])
 	}
 	for r := 0; r < g.spectrumHeight; r++ {
+		line := canvas.line(g.spectrumHeight, r, m.cfg.VisualizerStyle)
+		if preset.ID == "classic" {
+			line = spectrumLine(m.bars, g.spectrumW, g.spectrumHeight, r, m.cfg.VisualizerStyle, spectrumColor)
+		}
 		put(g.spectrumTop+r, strings.Repeat(" ", g.spectrumX)+
-			spectrumLine(m.bars, g.spectrumW, g.spectrumHeight, r, m.cfg.VisualizerStyle, spectrumColor))
+			line)
 	}
 	if !g.showLists {
 		if m.inputMode {
@@ -369,11 +378,10 @@ func spectrumLine(bars []float64, w, h, row int, style string, tint ...[]string)
 	if w < 1 || h < 1 || row < 0 || row >= h {
 		return ""
 	}
-	// One glyph per band keeps the spectrum dense and fine-grained. CAVA emits
-	// 64 bands, so wider terminals can show the full analyzer without the old
-	// spacer column making it look sparse.
-	n := min(96, max(1, (w-2)/2))
+	// Classic uses exactly the same centered one-cell geometry as the presets.
+	n, start, span := spectrumGeometry(w, len(bars))
 	var out strings.Builder
+	out.WriteString(strings.Repeat(" ", start))
 	for i := 0; i < n; i++ {
 		v := 0.
 		if len(bars) > 0 {
@@ -410,6 +418,7 @@ func spectrumLine(bars []float64, w, h, row int, style string, tint ...[]string)
 			out.WriteByte(' ')
 		}
 	}
+	out.WriteString(strings.Repeat(" ", max(0, w-start-span)))
 	return accent + out.String() + reset
 }
 func (m *model) draw() {
@@ -478,6 +487,9 @@ func (m *model) draw() {
 	_, _ = io.WriteString(m.output, out.String())
 	if m.helpOpen {
 		m.drawHelpOverlay()
+	}
+	if m.presetOpen {
+		m.drawPresetOverlay()
 	}
 	if m.transfer.stage == "target" || m.transfer.stage == "name" {
 		m.drawTransferOverlay()

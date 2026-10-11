@@ -20,6 +20,8 @@ type Track struct {
 	Album, Source                     string
 }
 type model struct {
+	presetOpen                             bool
+	presetNotice                           string
 	transfer                               trackTransfer
 	playlists                              []Playlist
 	viewedID, playingID, playingName       string
@@ -127,6 +129,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.query = string(m.edit.text)
 		}
 	case tea.KeyMsg:
+		if m.presetOpen {
+			m.presetKey(v)
+			m.draw()
+			return m, nil
+		}
+		if v.String() == "f4" && !m.helpOpen && !m.inputMode && m.playlistDialog == "" && m.transfer.stage == "" {
+			m.presetOpen = true
+			m.rendered = nil
+			m.draw()
+			return m, nil
+		}
 		if m.helpOpen {
 			switch v.String() {
 			case "t", "T", "esc":
@@ -406,7 +419,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spectrum.Push([]float64(v), time.Now())
 		return m, nil
 	case frameTickMsg:
-		m.spectrum.Step(time.Time(v), !m.stopped && !m.loading && !m.snapshot.Paused)
+		m.spectrum.StepPreset(time.Time(v), !m.stopped && !m.loading && !m.snapshot.Paused, presetFor(m.cfg.VisualizerEffect))
 		m.bars = m.spectrum.Levels
 		m.peaks = m.spectrum.Peaks
 		cmd = m.frameCmd()

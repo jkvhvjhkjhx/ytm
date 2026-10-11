@@ -78,6 +78,8 @@ var helpRegistry = []helpGroup{
 		"Esc           cancel / go back",
 	}},
 	{"APP / HELP", []string{
+		"F4            choose visualizer effect",
+		"Effects: arrows/J/K preview; Enter/F4/Esc close",
 		"V             switch spectrum style",
 		"T             toggle this help",
 		"J / K or ↑/↓   scroll help; Esc closes help",
