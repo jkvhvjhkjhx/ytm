@@ -46,7 +46,8 @@ func waitPlayback(p *MPV, seconds float64) error {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	return fmt.Errorf("no advancing audio output: %+v", p.Snapshot())
+	s := p.Snapshot()
+	return fmt.Errorf("no advancing audio output: time=%.2f AO=%s idle=%t error=%s", s.Time, s.Audio, s.Idle, s.PlaybackError)
 }
 func runPipelineCheck(cfg Config, mpvPath, ytdlpPath, cavaPath, runtime, query string) error {
 	fmt.Println("[1/8] Search using /, Unicode query, Enter")
@@ -102,7 +103,8 @@ func runPipelineCheck(cfg Config, mpvPath, ytdlpPath, cavaPath, runtime, query s
 			}
 		}
 	}()
-	fmt.Println("[2/8] Enter → yt-dlp download → local audio → mpv; high-resolution thumbnail")
+	fmt.Println("[2/8] Enter → cached audio or fresh stream → mpv; high-resolution thumbnail")
+	loadStarted := time.Now()
 	ui, cmd = updateModel(ui, tea.KeyMsg{Type: tea.KeyEnter})
 	ui = applyCommand(ui, cmd)
 	if ui.errText != "" {
@@ -115,6 +117,7 @@ func runPipelineCheck(cfg Config, mpvPath, ytdlpPath, cavaPath, runtime, query s
 	if e = waitPlayback(p, 1); e != nil {
 		return e
 	}
+	fmt.Printf("      load check completed in %.2fs · stream=%t (false = local cache/download)\n", time.Since(loadStarted).Seconds(), ui.audioStream)
 	start := p.Snapshot().Time
 	fmt.Println("[3/8] WASAPI output, advancing progress and real CAVA spectrum")
 	peak := 0.
@@ -206,7 +209,9 @@ loop:
 	if e != nil {
 		return e
 	}
-	time.Sleep(900 * time.Millisecond)
+	for deadline := time.Now().Add(5 * time.Second); !p.Snapshot().EOF && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
 	snap := p.Snapshot()
 	if !snap.EOF {
 		return fmt.Errorf("no EOF event after end seek")
@@ -230,7 +235,9 @@ loop:
 	ui.switchPlaylist(0)
 	ui, cmd = key(ui, "s")
 	ui = applyCommand(ui, cmd)
-	time.Sleep(150 * time.Millisecond)
+	for deadline := time.Now().Add(3 * time.Second); !p.Snapshot().Idle && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
 	if !p.Snapshot().Idle {
 		return fmt.Errorf("stop failed")
 	}
@@ -256,7 +263,7 @@ loop:
 	if e = checkLiveTrackTransfer(&ui); e != nil {
 		return e
 	}
-	fmt.Println("[7/8] Recreate mpv, replay cached audio after restart")
+	fmt.Println("[7/8] Recreate mpv, replay via cache or newly resolved stream")
 	ui.stop()
 	p.Close()
 	p2, e := newMPV(mpvPath, ytdlpPath, runtime)

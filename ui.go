@@ -63,6 +63,8 @@ type model struct {
 	persist                                bool
 	autoPlay                               bool
 	audioPath                              string
+	audioStream, audioFallback             bool
+	audioCtx                               context.Context
 	shuffle                                bool
 	repeatMode                             string
 	history, future, shuffleBag            []int
@@ -84,6 +86,7 @@ type artworkDone struct {
 }
 type audioReady struct {
 	path       string
+	stream     bool
 	err        error
 	generation int
 }
@@ -381,6 +384,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fail(v.err)
 			m.stopped = true
 		} else if m.player != nil {
+			m.audioStream = v.stream
 			m.audioPath = v.path
 			path, volume, g, p := v.path, m.volume, m.generation, m.player
 			m.notice = "Opening audio…"
@@ -388,7 +392,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err := p.Load(path, volume); err != nil {
 					return err
 				}
-				if err := p.waitLoaded(path, uint64(g)); err != nil {
+				if err := p.waitLoaded(path, uint64(g), v.stream); err != nil {
 					return err
 				}
 				if m.resumeAt > 0 {
@@ -403,6 +407,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if v.err != nil {
+			if v.loaded && m.audioStream && !m.audioFallback {
+				cmd = m.fallbackToDownload()
+				break
+			}
 			m.fail(v.err)
 			if v.loaded {
 				m.loading = false
@@ -452,7 +460,8 @@ func (m *model) stop() tea.Cmd {
 	m.snapshot = PlayerSnapshot{Volume: m.volume}
 	if m.player != nil {
 		m.player.epoch.Store(uint64(m.generation))
-		_ = m.control(false, m.player.Stop)
+		m.notice = "Stopped · Enter to play"
+		return m.control(false, m.player.Stop)
 	}
 	m.notice = "Stopped · Enter to play"
 	return nil
@@ -465,6 +474,7 @@ func (m *model) loadTrack(t Track) tea.Cmd {
 	g := m.generation
 	ctx, cancel := context.WithTimeout(m.ctx, 3*time.Minute)
 	m.cancel = cancel
+	m.audioCtx = ctx
 	if m.player != nil {
 		m.player.epoch.Store(uint64(m.generation))
 		_ = m.control(false, m.player.Stop)
@@ -473,6 +483,8 @@ func (m *model) loadTrack(t Track) tea.Cmd {
 		m.resumeAt = 0
 	}
 	m.audioPath = ""
+	m.audioStream = false
+	m.audioFallback = false
 	m.current = t
 	m.loading = true
 	m.stopped = true
@@ -480,10 +492,40 @@ func (m *model) loadTrack(t Track) tea.Cmd {
 	m.art = nil
 	m.artDirty = true
 	m.errText = ""
-	m.notice = "Buffering audio… (S cancels)"
+	m.notice = "Connecting to audio… (S cancels)"
 	yp, rt := m.ytdlpPath, m.jsRuntime
 	return tea.Batch(func() tea.Msg {
-		path, e := prepareAudio(ctx, yp, rt, t.URL)
-		return audioReady{path, e, g}
+		source, stream, e := resolveAudioSource(ctx, yp, rt, t.URL)
+		return audioReady{source, stream, e, g}
 	}, func() tea.Msg { img, e := trackArtwork(ctx, t); return artworkDone{img, g, e} })
+}
+
+func (m *model) fallbackToDownload() tea.Cmd {
+	if !m.audioStream || m.audioFallback {
+		return nil
+	}
+	// A stream may fail long after extraction's deadline. Give the download
+	// its own timeout, while track changes still cancel both it and artwork.
+	ctx, cancel := context.WithTimeout(m.ctx, 3*time.Minute)
+	previousCancel := m.cancel
+	m.cancel = func() {
+		if previousCancel != nil {
+			previousCancel()
+		}
+		cancel()
+	}
+	m.audioCtx = ctx
+	m.audioFallback = true
+	m.loading = true
+	m.stopped = true
+	if m.snapshot.Time > 0 {
+		m.resumeAt = m.snapshot.Time
+	}
+	m.audioPath = ""
+	m.notice = "Stream unavailable · downloading audio…"
+	g, ctx, yp, rt, trackURL := m.generation, m.audioCtx, m.ytdlpPath, m.jsRuntime, m.current.URL
+	return func() tea.Msg {
+		path, err := prepareAudio(ctx, yp, rt, trackURL)
+		return audioReady{path, false, err, g}
+	}
 }

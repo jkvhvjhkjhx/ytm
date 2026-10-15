@@ -61,7 +61,7 @@ func (m *model) control(loaded bool, action func() error) tea.Cmd {
 		}
 	}
 }
-func (p *MPV) waitLoaded(path string, epoch uint64) error {
+func (p *MPV) waitLoaded(path string, epoch uint64, stream bool) error {
 	until := time.NewTimer(12 * time.Second)
 	defer until.Stop()
 	tick := time.NewTicker(30 * time.Millisecond)
@@ -77,10 +77,10 @@ func (p *MPV) waitLoaded(path string, epoch uint64) error {
 				return context.Canceled
 			}
 			s := p.Snapshot()
-			if s.PlaybackError != "" {
+			if s.Path == path && s.PlaybackError != "" {
 				return fmt.Errorf("%s", s.PlaybackError)
 			}
-			if s.Path == path && !s.Idle && s.Audio != "" && s.Duration > 0 {
+			if s.Path == path && !s.Idle && s.Audio != "" && (s.Duration > 0 || (stream && s.Time > 0)) {
 				return nil
 			}
 		}
@@ -94,6 +94,9 @@ func (m *model) acceptSnapshot(s PlayerSnapshot) tea.Cmd {
 	}
 	m.snapshot = s
 	if s.PlaybackError != "" {
+		if m.audioStream && !m.audioFallback {
+			return m.fallbackToDownload()
+		}
 		m.fail(fmt.Errorf("%s", s.PlaybackError))
 		m.stopped = true
 		return nil

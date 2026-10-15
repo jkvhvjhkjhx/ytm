@@ -166,8 +166,11 @@ audio stream URLs.
 
 ## Current limitations
 
-- Audio is downloaded completely before playback; an uncached track can take
-  time to start. Download limit: 128 MiB per track, three-minute timeout.
+- Cached audio opens locally. For uncached tracks, yt-dlp resolves an audio-only
+  URL and mpv starts after buffering; extraction still takes a few seconds.
+- If stream resolution or playback fails, YTM falls back to a complete download
+  (128 MiB per track, three-minute timeout). A playback failure retries once and
+  preserves the current position. Streamed audio is not saved as a cache file.
 - Live streams are excluded. The audio cache targets approximately 256 MiB.
 - CAVA observes the default Windows output device, including other apps' audio.
 - Automatic Sixel detection currently recognizes a Scoop Windows Terminal
