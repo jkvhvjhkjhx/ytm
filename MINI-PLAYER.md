@@ -37,8 +37,8 @@ color = "automatic"
 YTM cyan/violet accent. Transparency, count, spacing, gain and animation quality
 are automatic. Disabling Mini-player hides the overlay while retaining the tray
 controls, so it can be re-enabled. Disabling both artwork and spectrum also
-hides the empty overlay. Always Visible still yields to fullscreen applications
-and to the host window being on another virtual desktop.
+hides the empty overlay. Fullscreen browsers/video do not hide the companion.
+Always Visible still yields to the host window being on another virtual desktop.
 
 ## Architecture
 
@@ -100,12 +100,11 @@ builds), or a PCM tap in mpv. That is not silently claimed by this implementatio
   space for an auto-hidden taskbar to reveal itself.
 - Per-monitor DPI, negative monitor coordinates, work-area changes and display
   changes are handled. Multiple companions stack when they would overlap.
-- Fullscreen and presentation state suppress the overlay; shell policy changes
-  are sampled, so transitions can take up to roughly 250 ms.
-- Normal and maximized browsers do not suppress it. Fullscreen detection uses
-  the foreground window's visible frame and caption, not notification BUSY
-  state or invisible maximized resize borders. Switching applications refreshes
-  its topmost placement without activating it.
+- Normal, maximized and fullscreen browsers/video keep the companion visible
+  when its visibility settings apply. Entering fullscreen or switching apps
+  refreshes topmost placement without activating it. Exclusive fullscreen games
+  or protected surfaces may bypass desktop composition and cannot be guaranteed
+  to display an overlay; no game injection or shell modification is used.
 - `TaskbarCreated` re-registers the tray icon after Explorer restarts, with
   retry when Explorer is not ready. Windows controls tray overflow placement.
 - A classic console is identified directly. Windows Terminal uses a pseudoconsole,

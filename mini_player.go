@@ -200,8 +200,9 @@ func (m *model) handleMiniAction(a miniActionMsg) tea.Cmd {
 	return nil
 }
 
-func miniShouldShow(c MiniConfig, hostKnown, minimized, hidden, fullscreen, cloaked bool) bool {
-	if !c.Enabled || fullscreen || cloaked {
+func miniShouldShow(c MiniConfig, hostKnown, minimized, hidden, _ /* fullscreen */, cloaked bool) bool {
+	// Fullscreen does not override explicit user visibility settings.
+	if !c.Enabled || cloaked {
 		return false
 	}
 	return c.AlwaysVisible || hostKnown && c.ShowWhenMinimized && (minimized || hidden)

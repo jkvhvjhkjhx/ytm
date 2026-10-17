@@ -63,9 +63,18 @@ func TestMiniVisibility(t *testing.T) {
 	if !miniShouldShow(c, true, true, false, false, false) || !miniShouldShow(c, true, false, true, false, false) {
 		t.Fatal("not shown minimized/hidden")
 	}
+	if !miniShouldShow(c, true, true, false, true, false) || !miniShouldShow(c, true, false, true, true, false) {
+		t.Fatal("fullscreen hid minimized / hidden companion")
+	}
+	if miniShouldShow(c, true, false, false, true, false) {
+		t.Fatal("fullscreen bypassed restored-host visibility setting")
+	}
 	c.AlwaysVisible = true
-	if miniShouldShow(c, true, true, false, true, false) || miniShouldShow(c, true, true, false, false, true) {
-		t.Fatal("shown over fullscreen / another desktop")
+	if !miniShouldShow(c, true, false, false, true, false) {
+		t.Fatal("Always Visible hidden in fullscreen")
+	}
+	if miniShouldShow(c, true, true, false, true, true) {
+		t.Fatal("shown on another desktop")
 	}
 	c.Enabled = false
 	if miniShouldShow(c, true, true, true, false, false) {

@@ -3,6 +3,15 @@
 Local checkpoint before implementation: `checkpoint-20261017` at `d7b3c08`.
 No new runtime dependencies were added.
 
+Latest visibility policy: fullscreen keeps the mini-player visible, as requested
+after the initial implementation. The earlier fullscreen-suppression checks below
+describe the original policy and are superseded by this follow-up verification:
+`TestMiniNativeBrowserVisibility` passed in 3.59 s with an actual Cốc Cốc
+`browser.exe` window, including entering F11 fullscreen, checking the overlay
+remained above it in native z-order, and restoring the browser's original mode.
+The real borderless fullscreen fixture also retained the overlay. Unit tests,
+`go vet` and the Windows build passed. No audio muting was needed.
+
 ## Executed checks
 
 - `go test -buildvcs=false ./...`: passed.

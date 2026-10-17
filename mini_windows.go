@@ -207,6 +207,7 @@ type miniNative struct {
 	clockStarted                           bool
 	presentX, presentY, presentW, presentH int
 	presentForeground                      uintptr
+	presentFullscreen                      bool
 	minimized, hidden, fullscreen, cloaked bool
 	drag                                   miniDrag
 	manualPosition, positionDirty          bool
@@ -666,10 +667,11 @@ func (n *miniNative) tick() {
 		n.frames++
 	}
 	foreground, _, _ := user32.NewProc("GetForegroundWindow").Call()
-	if !n.visible || n.presentX != n.x || n.presentY != n.y || n.presentW != g.W || n.presentH != g.H || n.presentForeground != foreground {
+	if !n.visible || n.presentX != n.x || n.presentY != n.y || n.presentW != g.W || n.presentH != g.H || n.presentForeground != foreground || n.presentFullscreen != n.fullscreen {
 		miniSetPositionProc.Call(n.overlay, ^uintptr(0), uintptr(n.x), uintptr(n.y), uintptr(g.W), uintptr(g.H), 0x10|0x40)
 		n.presentX, n.presentY, n.presentW, n.presentH = n.x, n.y, g.W, g.H
 		n.presentForeground = foreground
+		n.presentFullscreen = n.fullscreen
 	}
 	n.visible = true
 	if moving || in.Active || n.drag.pressed {
