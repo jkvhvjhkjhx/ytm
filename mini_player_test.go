@@ -226,3 +226,44 @@ func BenchmarkMiniFrame(b *testing.B) {
 		r.paint(&s)
 	}
 }
+
+func TestMiniDragThresholdAndCoordinates(t *testing.T) {
+	var d miniDrag
+	d.begin(miniPoint{100, 200}, miniPoint{-500, 600}, 4, 4)
+	if _, _, moved := d.move(miniPoint{102, 199}); moved {
+		t.Fatal("click jitter became a drag")
+	}
+	x, y, moved := d.move(miniPoint{90, 215})
+	if !moved || x != -510 || y != 615 {
+		t.Fatalf("bad drag: %d,%d moved=%v", x, y, moved)
+	}
+	if _, _, moved := d.move(miniPoint{100, 200}); !moved {
+		t.Fatal("returning to start would accidentally restore terminal")
+	}
+	d.pressed = false
+	if _, _, moved := d.move(miniPoint{120, 220}); moved {
+		t.Fatal("movement after release")
+	}
+	d.begin(miniPoint{}, miniPoint{}, 4, 4)
+	if d.moved {
+		t.Fatal("new click retained previous drag")
+	}
+}
+
+func TestMiniDragWorkAreaClamp(t *testing.T) {
+	for _, tc := range []struct {
+		work                     miniRect
+		x, y, w, h, wantX, wantY int
+	}{
+		{miniRect{0, 0, 1920, 1040}, 400, 500, 200, 44, 400, 500},
+		{miniRect{0, 0, 1920, 1040}, 5000, 5000, 200, 44, 1720, 996},
+		{miniRect{-1920, -1080, 0, -40}, -5000, -5000, 200, 44, -1920, -1080},
+		{miniRect{-1920, -1080, 0, -40}, 50, 50, 200, 44, -200, -84},
+		{miniRect{0, 0, 100, 20}, 50, 50, 200, 44, 0, 0},
+	} {
+		x, y := miniClampPosition(tc.work, tc.x, tc.y, tc.w, tc.h)
+		if x != tc.wantX || y != tc.wantY {
+			t.Fatalf("%+v: got %d,%d", tc, x, y)
+		}
+	}
+}

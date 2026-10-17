@@ -207,6 +207,38 @@ type miniNative struct {
 	clockStarted                           bool
 	presentX, presentY, presentW, presentH int
 	minimized, hidden, fullscreen, cloaked bool
+	drag                                   miniDrag
+	manualPosition, positionDirty          bool
+	manualX, manualY                       int
+}
+
+// Screen coordinates and the system drag threshold distinguish a click from
+// a drag. Crossing the threshold once suppresses click-to-restore on release.
+type miniDrag struct {
+	pressed, moved         bool
+	start, origin          miniPoint
+	thresholdX, thresholdY int
+}
+
+func (d *miniDrag) begin(point, origin miniPoint, thresholdX, thresholdY int) {
+	*d = miniDrag{pressed: true, start: point, origin: origin,
+		thresholdX: max(1, thresholdX), thresholdY: max(1, thresholdY)}
+}
+
+func (d *miniDrag) move(point miniPoint) (int, int, bool) {
+	dx, dy := int(point.X-d.start.X), int(point.Y-d.start.Y)
+	if !d.pressed {
+		return 0, 0, false
+	}
+	if dx >= d.thresholdX || dx <= -d.thresholdX || dy >= d.thresholdY || dy <= -d.thresholdY {
+		d.moved = true
+	}
+	return int(d.origin.X) + dx, int(d.origin.Y) + dy, d.moved
+}
+
+func miniClampPosition(work miniRect, x, y, width, height int) (int, int) {
+	return clamp(x, int(work.Left), max(int(work.Left), int(work.Right)-width)),
+		clamp(y, int(work.Top), max(int(work.Top), int(work.Bottom)-height))
 }
 
 func startMiniPlayer(cfg MiniConfig, mpvPID uint32) (*miniPlayer, error) {
@@ -405,7 +437,39 @@ func miniWindowProc(h uintptr, msg uint32, w, l uintptr) uintptr {
 		}
 	case 0x201:
 		if h == n.overlay {
-			n.restore()
+			point := miniMouseScreen(h, l)
+			var rect miniRect
+			user32.NewProc("GetWindowRect").Call(h, uintptr(unsafe.Pointer(&rect)))
+			tx, ty := miniDragThreshold(n.dpi)
+			n.drag.begin(point, miniPoint{rect.Left, rect.Top}, tx, ty)
+			user32.NewProc("SetCapture").Call(h)
+			n.setTimer(33)
+		}
+		return 0
+	case 0x200: // WM_MOUSEMOVE, including movement outside a captured window.
+		if h == n.overlay && n.drag.pressed {
+			n.moveDrag(miniMouseScreen(h, l))
+		}
+		return 0
+	case 0x202: // Restore on a click, never at the end of a drag.
+		if h == n.overlay && n.drag.pressed {
+			n.moveDrag(miniMouseScreen(h, l))
+			click := !n.drag.moved
+			n.drag.pressed = false
+			user32.NewProc("ReleaseCapture").Call()
+			if click {
+				n.restore()
+			} else {
+				n.tick()
+			}
+		}
+		return 0
+	case 0x215, 0x1f: // Capture lost / WM_CANCELMODE: cancel without restoring.
+		if h == n.overlay {
+			n.drag.pressed = false
+			if msg == 0x1f {
+				user32.NewProc("ReleaseCapture").Call()
+			}
 		}
 		return 0
 	case 0x205:
@@ -430,6 +494,32 @@ func miniWindowProc(h uintptr, msg uint32, w, l uintptr) uintptr {
 	}
 	r, _, _ := user32.NewProc("DefWindowProcW").Call(h, uintptr(msg), w, l)
 	return r
+}
+
+func miniMouseScreen(h uintptr, packed uintptr) miniPoint {
+	// GET_X/Y_LPARAM semantics: captured mouse coordinates may be negative.
+	point := miniPoint{int32(int16(packed & 0xffff)), int32(int16((packed >> 16) & 0xffff))}
+	user32.NewProc("ClientToScreen").Call(h, uintptr(unsafe.Pointer(&point)))
+	return point
+}
+
+func miniDragThreshold(dpi int) (int, int) {
+	proc := user32.NewProc("GetSystemMetricsForDpi")
+	if proc.Find() == nil {
+		x, _, _ := proc.Call(68, uintptr(dpi)) // SM_CXDRAG / SM_CYDRAG
+		y, _, _ := proc.Call(69, uintptr(dpi))
+		return int(x), int(y)
+	}
+	x, _, _ := user32.NewProc("GetSystemMetrics").Call(68)
+	y, _, _ := user32.NewProc("GetSystemMetrics").Call(69)
+	return int(x), int(y)
+}
+
+func (n *miniNative) moveDrag(point miniPoint) {
+	if x, y, moved := n.drag.move(point); moved {
+		n.manualX, n.manualY = x, y
+		n.manualPosition, n.positionDirty = true, true
+	}
 }
 func (n *miniNative) validTerminal() bool {
 	if n.terminal == 0 || !miniBool("IsWindow", n.terminal) {
@@ -534,6 +624,9 @@ func (n *miniNative) tick() {
 			n.addTray()
 		}
 	}
+	if n.positionDirty {
+		n.layout(in)
+	}
 	if !n.show {
 		if n.visible {
 			user32.NewProc("ShowWindow").Call(n.overlay, 0)
@@ -576,7 +669,7 @@ func (n *miniNative) tick() {
 		n.presentX, n.presentY, n.presentW, n.presentH = n.x, n.y, g.W, g.H
 	}
 	n.visible = true
-	if moving || in.Active {
+	if moving || in.Active || n.drag.pressed {
 		n.setTimer(33)
 	} else {
 		n.setTimer(250)
@@ -596,12 +689,43 @@ func (n *miniNative) publishStatus() {
 	n.owner.mu.Unlock()
 }
 func (n *miniNative) policy(in miniInput) {
+	n.layout(in)
+	n.light = false
+	if key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, registry.QUERY_VALUE); err == nil {
+		v, _, e := key.GetIntegerValue("SystemUsesLightTheme")
+		n.light = e == nil && v != 0
+		key.Close()
+	}
+	n.allowAudio = false
+	n.audioReason = "Paused / stopped"
+	if n.show && in.Active && in.Settings.Visualizer {
+		n.allowAudio, n.audioReason = n.guard.allow(n.owner.mpvPID, n.owner.capturePID.Load())
+	}
+	text := "YTM · " + in.Title
+	if n.audioReason != "" {
+		text += " · " + n.audioReason
+	}
+	if !n.validTerminal() {
+		text += " · terminal not identified"
+	}
+	if text != n.lastTooltip {
+		n.setTip(text)
+	}
+}
+
+func (n *miniNative) layout(in miniInput) {
+	n.positionDirty = false
 	known := n.validTerminal()
 	anchor := n.terminal
 	if !known {
 		anchor = 0
 	}
 	mon, _, _ := user32.NewProc("MonitorFromWindow").Call(anchor, 2)
+	if n.manualPosition {
+		r := miniRect{int32(n.manualX), int32(n.manualY),
+			int32(n.manualX + max(1, n.surface.Layout.W)), int32(n.manualY + max(1, n.surface.Layout.H))}
+		mon, _, _ = user32.NewProc("MonitorFromRect").Call(uintptr(unsafe.Pointer(&r)), 2)
+	}
 	info := miniMonitor{}
 	info.Size = uint32(unsafe.Sizeof(info))
 	if !miniBool("GetMonitorInfoW", mon, uintptr(unsafe.Pointer(&info))) {
@@ -647,6 +771,12 @@ func (n *miniNative) policy(in miniInput) {
 	n.available = max(0, int(work.Right-work.Left)-2*pad)
 	g := miniGeometry(n.dpi, n.available, in.Settings, 96)
 	n.x, n.y = miniPosition(info.Monitor, work, g.W, g.H, pad)
+	if n.manualPosition {
+		n.x, n.y = miniClampPosition(work, n.manualX, n.manualY, g.W, g.H)
+		if !n.drag.pressed {
+			n.manualX, n.manualY = n.x, n.y
+		}
+	}
 	if int(work.Bottom-work.Top) < g.H+2*pad {
 		n.show = false
 	}
@@ -676,27 +806,6 @@ func (n *miniNative) policy(in miniInput) {
 	}
 	if n.y < int(work.Top) {
 		n.show = false
-	}
-	n.light = false
-	if key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, registry.QUERY_VALUE); err == nil {
-		v, _, e := key.GetIntegerValue("SystemUsesLightTheme")
-		n.light = e == nil && v != 0
-		key.Close()
-	}
-	n.allowAudio = false
-	n.audioReason = "Paused / stopped"
-	if n.show && in.Active && in.Settings.Visualizer {
-		n.allowAudio, n.audioReason = n.guard.allow(n.owner.mpvPID, n.owner.capturePID.Load())
-	}
-	text := "YTM · " + in.Title
-	if n.audioReason != "" {
-		text += " · " + n.audioReason
-	}
-	if !known {
-		text += " · terminal not identified"
-	}
-	if text != n.lastTooltip {
-		n.setTip(text)
 	}
 }
 func miniPosition(monitor, work miniRect, w, h, pad int) (int, int) {

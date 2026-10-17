@@ -7,6 +7,12 @@ taskbar button restores the identified terminal window. Right-click either the
 tray icon or companion for Play/Pause, Next, Previous, Show, Hide, Minimize,
 settings and Exit. Keyboard shortcuts inside YTM are unchanged.
 
+Hold the left mouse button and drag the mini-player to reposition it. A short
+click still restores YTM; a drag does not restore or activate the terminal.
+The chosen position is retained for the current YTM session, including hiding
+and showing the companion, and stays within the monitor work area. On restart
+the default taskbar-adjacent placement is used.
+
 Hide and Minimize leave audio running. Exit and the terminal's normal Q command
 stop the application and clean up the companion. Closing the actual terminal
 window remains termination, not hide-to-tray. Hide explicitly affects the entire

@@ -315,6 +315,7 @@ func TestMiniNativePlayback(t *testing.T) {
 			user32.NewProc("PostMessageW").Call(status.Host, 0x111, 10, 0)
 		} else {
 			user32.NewProc("PostMessageW").Call(status.Overlay, 0x201, 0, 0)
+			user32.NewProc("PostMessageW").Call(status.Overlay, 0x202, 0, 0)
 		}
 		wait("overlay click restores", 4*time.Second, func() bool { return !miniBool("IsIconic", status.Terminal) && !mini.Status().Visible })
 		user32.NewProc("PostMessageW").Call(status.Host, 0x111, 11, 0)
@@ -458,6 +459,123 @@ func TestMiniNativePlayback(t *testing.T) {
 		t.Fatal("native window leaked after exit")
 	}
 	t.Log("native windows destroyed; native audio / tray / guard checks completed")
+}
+
+// Native mouse-message integration; no browser mute or audio playback needed.
+func TestMiniNativeDrag(t *testing.T) {
+	if os.Getenv("YTM_MINI_DRAG_TEST") != "1" {
+		t.Skip("requires an interactive Windows desktop")
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	oldDPI, _, _ := user32.NewProc("SetThreadDpiAwarenessContext").Call(^uintptr(3))
+	defer user32.NewProc("SetThreadDpiAwarenessContext").Call(oldDPI)
+	cfg := defaultMiniConfig()
+	cfg.AlwaysVisible = true
+	cfg.Visualizer = false
+	p, err := startMiniPlayer(cfg, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	if terminal := p.Status().Terminal; terminal != 0 {
+		focusMiniTestWindow(t, terminal)
+	}
+	deadline := time.Now().Add(4 * time.Second)
+	for !p.Status().Visible && time.Now().Before(deadline) {
+		time.Sleep(40 * time.Millisecond)
+	}
+	s := p.Status()
+	if !s.Visible {
+		t.Fatal("mini not visible on test desktop")
+	}
+	getRect := func() miniRect {
+		var r miniRect
+		user32.NewProc("GetWindowRect").Call(s.Overlay, uintptr(unsafe.Pointer(&r)))
+		return r
+	}
+	send := func(msg uint32, x, y int) {
+		packed := uintptr(uint32(uint16(int16(x))) | uint32(uint16(int16(y)))<<16)
+		user32.NewProc("SendMessageW").Call(s.Overlay, uintptr(msg), 0, packed)
+	}
+	before := getRect()
+	foreground, _, _ := user32.NewProc("GetForegroundWindow").Call()
+	send(0x201, 20, 20)
+	send(0x200, -80, -40)
+	// Wait for the normal render clock rather than pumping native state manually.
+	time.Sleep(200 * time.Millisecond)
+	send(0x202, 20, 20)
+	after := getRect()
+	if after.Left != before.Left-100 || after.Top != before.Top-60 {
+		t.Fatalf("drag did not move overlay: before=%+v after=%+v", before, after)
+	}
+	time.Sleep(650 * time.Millisecond) // several automatic placement policy ticks
+	if current := getRect(); current != after {
+		t.Fatalf("automatic placement snapped back after drag: %+v vs %+v", current, after)
+	}
+	if now, _, _ := user32.NewProc("GetForegroundWindow").Call(); now != foreground {
+		t.Fatal("drag stole focus")
+	}
+	type guiThreadInfo struct {
+		Size, Flags                                        uint32
+		Active, Focus, Capture, MenuOwner, MoveSize, Caret uintptr
+		CaretRect                                          miniRect
+	}
+	thread, _, _ := user32.NewProc("GetWindowThreadProcessId").Call(s.Overlay, 0)
+	info := guiThreadInfo{}
+	info.Size = uint32(unsafe.Sizeof(info))
+	if !miniBool("GetGUIThreadInfo", thread, uintptr(unsafe.Pointer(&info))) {
+		t.Fatal("cannot read overlay thread capture state")
+	}
+	if info.Capture != 0 {
+		t.Fatal("drag left mouse capture held")
+	}
+	// Capture cancellation must not leave an armed click or keep moving.
+	send(0x201, 20, 20)
+	send(0x1f, 0, 0)
+	send(0x200, -80, -40)
+	send(0x202, -80, -40)
+	time.Sleep(100 * time.Millisecond)
+	if getRect() != after {
+		t.Fatal("cancelled drag moved overlay")
+	}
+	// Also exercise genuine desktop input, including moving outside the original
+	// overlay bounds while the left button is physically held via SendInput.
+	var cursor miniPoint
+	user32.NewProc("GetCursorPos").Call(uintptr(unsafe.Pointer(&cursor)))
+	defer user32.NewProc("SetCursorPos").Call(uintptr(cursor.X), uintptr(cursor.Y))
+	type mouse struct {
+		X, Y              int32
+		Data, Flags, Time uint32
+		Extra             uintptr
+	}
+	type input struct {
+		Type  uint32
+		Mouse mouse
+	}
+	button := func(flags uint32) {
+		in := input{Mouse: mouse{Flags: flags}}
+		if sent, _, _ := user32.NewProc("SendInput").Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in)); sent != 1 {
+			t.Fatal("cannot inject verification mouse button")
+		}
+	}
+	defer button(4)
+	user32.NewProc("SetCursorPos").Call(uintptr(after.Left+20), uintptr(after.Top+20))
+	button(2)
+	time.Sleep(100 * time.Millisecond)
+	user32.NewProc("SetCursorPos").Call(uintptr(after.Left-80), uintptr(after.Top-40))
+	time.Sleep(200 * time.Millisecond)
+	button(4)
+	time.Sleep(300 * time.Millisecond)
+	real := getRect()
+	if real.Left != after.Left-100 || real.Top != after.Top-60 {
+		t.Fatalf("real mouse drag failed: before=%+v after=%+v", after, real)
+	}
+	if now, _, _ := user32.NewProc("GetForegroundWindow").Call(); now != foreground {
+		t.Fatal("real mouse drag stole focus")
+	}
+	t.Logf("drag moved %d,%d -> %d,%d; retained position, focus and capture cleanup verified", before.Left, before.Top, after.Left, after.Top)
+	t.Logf("real desktop mouse drag moved overlay to %d,%d without activation", real.Left, real.Top)
 }
 
 // Test-only real input focuses the dedicated verification terminal. Posted

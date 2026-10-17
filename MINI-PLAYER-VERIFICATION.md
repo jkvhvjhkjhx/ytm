@@ -28,6 +28,12 @@ No new runtime dependencies were added.
   (2.263 to 3.462 seconds). Artwork was loaded, 96 real CAVA bands received,
   and desktop screenshots confirmed both the actual thumbnail and changing
   spectrum. Minimize/restore and tray Exit completed; application exit code 0.
+- Follow-up drag support: unit tests for click/drag thresholds and work-area
+  clamping passed. `TestMiniNativeDrag` passed on the real Windows desktop:
+  both native mouse messages and actual SendInput button/movement events moved
+  the overlay by the expected pixel deltas without activating another window.
+  Position survived automatic layout ticks, cancellation stopped movement, and
+  the overlay thread released mouse capture. The test restored the cursor.
 
 Local evidence is under ignored `dist/mini-verification`,
 `dist/mini-clock-verification` and `dist/mini-app-check-final`.
