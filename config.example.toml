@@ -10,3 +10,11 @@ yt_dlp_path = ""
 cava_path = ""
 deno_path = ""
 node_path = ""
+
+[mini_player]
+enabled = true
+show_when_minimized = true
+always_visible = false
+thumbnail = true
+visualizer = true
+color = "automatic" # automatic (Windows light/dark), theme (YTM)

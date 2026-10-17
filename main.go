@@ -21,23 +21,25 @@ import (
 const appVersion = "0.2.5"
 
 type Config struct {
-	VisualizerEffect   string `toml:"visualizer_effect"`
-	Theme              string `toml:"theme"`
-	VisualizerStyle    string `toml:"visualizer_style"`
-	VisualizerFPS      int    `toml:"visualizer_fps"`
-	Volume             int    `toml:"volume"`
-	ThumbnailSize      int    `toml:"thumbnail_size"`
-	ImageMode          string `toml:"image_mode"`
-	DefaultSearchLimit int    `toml:"default_search_limit"`
-	MPVPath            string `toml:"mpv_path"`
-	YTDLPPath          string `toml:"yt_dlp_path"`
-	CavaPath           string `toml:"cava_path"`
-	DenoPath           string `toml:"deno_path"`
-	NodePath           string `toml:"node_path"`
+	MiniPlayer         MiniConfig `toml:"mini_player"`
+	VisualizerEffect   string     `toml:"visualizer_effect"`
+	Theme              string     `toml:"theme"`
+	VisualizerStyle    string     `toml:"visualizer_style"`
+	VisualizerFPS      int        `toml:"visualizer_fps"`
+	Volume             int        `toml:"volume"`
+	ThumbnailSize      int        `toml:"thumbnail_size"`
+	ImageMode          string     `toml:"image_mode"`
+	DefaultSearchLimit int        `toml:"default_search_limit"`
+	MPVPath            string     `toml:"mpv_path"`
+	YTDLPPath          string     `toml:"yt_dlp_path"`
+	CavaPath           string     `toml:"cava_path"`
+	DenoPath           string     `toml:"deno_path"`
+	NodePath           string     `toml:"node_path"`
 }
 
 func defaultConfig() Config {
 	return Config{
+		MiniPlayer:       defaultMiniConfig(),
 		VisualizerEffect: "glass",
 		Theme:            "nocturne", VisualizerStyle: "spectrum", VisualizerFPS: 24,
 		Volume: 70, ThumbnailSize: 52, ImageMode: "auto", DefaultSearchLimit: 10,
@@ -83,6 +85,7 @@ func loadConfig() (Config, error) {
 		cfg.DefaultSearchLimit = defaults.DefaultSearchLimit
 	}
 	cfg.VisualizerEffect = presetFor(cfg.VisualizerEffect).ID
+	cfg.MiniPlayer = normalizeMiniConfig(cfg.MiniPlayer)
 	return cfg, nil
 }
 
@@ -344,6 +347,13 @@ func runPlayer(cfg Config, mpvPath, ytdlpPath, cavaPath, runtime string) error {
 	model.cfg.ImageMode = imageMode(cfg.ImageMode)
 	model.persist = true
 	model.restoreQueue()
+	mini, miniErr := startMiniPlayer(cfg.MiniPlayer, miniMPVPID(player))
+	if miniErr != nil {
+		model.notice = "Mini-player unavailable: " + miniErr.Error()
+	} else {
+		model.mini = mini
+		defer mini.Close()
+	}
 	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
 		model.query = strings.Join(os.Args[1:], " ")
 		model.autoPlay = true
@@ -352,6 +362,21 @@ func runPlayer(cfg Config, mpvPath, ytdlpPath, cavaPath, runtime string) error {
 	}
 	program := tea.NewProgram(model, tea.WithoutRenderer(), tea.WithInput(os.Stdin), tea.WithOutput(io.Discard))
 	model.program = program
+	if mini != nil {
+		go func() {
+			for {
+				select {
+				case action := <-mini.actions:
+					program.Send(action)
+				case <-mini.done:
+					return
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+		model.publishMini()
+	}
 	if cavaPath != "" {
 		if err := model.startSpectrum(cavaPath); err != nil {
 			go program.Send(spectrumErrorMsg(err.Error()))

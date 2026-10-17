@@ -80,6 +80,9 @@ func (m *model) startSpectrum(cavaPath string) error {
 		return err
 	}
 	m.cavaCmd, m.cavaConfig, m.cavaLog = cmd, tmp, logFile
+	if m.mini != nil {
+		m.mini.capturePID.Store(uint32(cmd.Process.Pid))
+	}
 	go func() {
 		lastMetrics := time.Time{}
 		var trace *os.File

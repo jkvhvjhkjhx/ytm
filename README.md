@@ -25,10 +25,17 @@ eye-catching interface.
 - Shuffle and repeat one track or the entire playback queue.
 - Show high-resolution thumbnails with Sixel or true-color half-block fallback.
 - Display a real CAVA/WASAPI spectrum, with spectrum and mirror styles.
+- Windows tray controls and a compact, translucent mini-player beside the taskbar.
 
 The playlist you browse is independent of the queue currently playing.
 Editing a playlist does not interrupt audio. Press Enter on a track to start a
 new playback queue using that playlist's current order.
+
+The mini-player appears when the terminal window is minimized or hidden.
+Click it to restore the terminal; right-click the YTM tray icon for transport,
+Show/Hide, settings and Exit. Settings save immediately. The mini spectrum uses
+the existing CAVA device loopback with an audio-session guard; mixed output from
+other apps suspends it. See [mini-player behavior, settings and limitations](MINI-PLAYER.md).
 
 ## Install on Windows
 

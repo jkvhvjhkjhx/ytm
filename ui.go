@@ -20,6 +20,7 @@ type Track struct {
 	Album, Source                     string
 }
 type model struct {
+	mini                                   *miniPlayer
 	presetOpen                             bool
 	presetNotice                           string
 	transfer                               trackTransfer
@@ -116,8 +117,11 @@ func (m *model) fail(err error) {
 	}
 }
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	defer func() { m.publishMini() }()
 	var cmd tea.Cmd
 	switch v := msg.(type) {
+	case miniActionMsg:
+		cmd = m.handleMiniAction(v)
 	case tea.WindowSizeMsg:
 		if m.width != v.Width || m.height != v.Height {
 			m.width, m.height = v.Width, v.Height
@@ -424,6 +428,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = "Playing · " + m.current.Title
 		}
 	case spectrumMsg:
+		if m.mini != nil {
+			m.mini.pushBands(v, time.Now())
+		}
 		m.spectrum.Push([]float64(v), time.Now())
 		return m, nil
 	case frameTickMsg:
