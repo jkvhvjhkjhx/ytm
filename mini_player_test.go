@@ -267,3 +267,31 @@ func TestMiniDragWorkAreaClamp(t *testing.T) {
 		}
 	}
 }
+
+func TestMiniFullscreenVersusMaximizedBrowser(t *testing.T) {
+	monitor := miniRect{0, 0, 1920, 1080}
+	for _, tc := range []struct {
+		name  string
+		frame miniRect
+		style uintptr
+		want  bool
+	}{
+		{"maximized browser resize borders", miniRect{-8, -8, 1928, 1088}, 0x00cf0000, false},
+		{"maximized browser auto-hide taskbar", monitor, 0x00cf0000, false},
+		{"ordinary browser", miniRect{100, 100, 1500, 900}, 0x00cf0000, false},
+		{"F11 or fullscreen video", monitor, 0x90000000, true},
+		{"borderless small window", miniRect{100, 100, 1500, 900}, 0x90000000, false},
+		{"fullscreen other monitor", miniRect{-1920, 0, 0, 1080}, 0x90000000, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := miniFrameFullscreen(monitor, tc.frame, tc.style); got != tc.want {
+				t.Fatalf("fullscreen=%v, want %v", got, tc.want)
+			}
+		})
+	}
+	for state := uint32(0); state <= 7; state++ {
+		if got := miniExclusivePresentation(state); got != (state == 3 || state == 4) {
+			t.Fatalf("wrong notification-state policy for %d", state)
+		}
+	}
+}

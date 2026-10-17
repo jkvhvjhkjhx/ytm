@@ -206,6 +206,7 @@ type miniNative struct {
 	frames                                 uint64
 	clockStarted                           bool
 	presentX, presentY, presentW, presentH int
+	presentForeground                      uintptr
 	minimized, hidden, fullscreen, cloaked bool
 	drag                                   miniDrag
 	manualPosition, positionDirty          bool
@@ -664,9 +665,11 @@ func (n *miniNative) tick() {
 		}
 		n.frames++
 	}
-	if !n.visible || n.presentX != n.x || n.presentY != n.y || n.presentW != g.W || n.presentH != g.H {
+	foreground, _, _ := user32.NewProc("GetForegroundWindow").Call()
+	if !n.visible || n.presentX != n.x || n.presentY != n.y || n.presentW != g.W || n.presentH != g.H || n.presentForeground != foreground {
 		miniSetPositionProc.Call(n.overlay, ^uintptr(0), uintptr(n.x), uintptr(n.y), uintptr(g.W), uintptr(g.H), 0x10|0x40)
 		n.presentX, n.presentY, n.presentW, n.presentH = n.x, n.y, g.W, g.H
+		n.presentForeground = foreground
 	}
 	n.visible = true
 	if moving || in.Active || n.drag.pressed {
@@ -822,7 +825,10 @@ func miniPosition(monitor, work miniRect, w, h, pad int) (int, int) {
 }
 func miniFullscreen(mon uintptr, bounds miniRect, host, overlay uintptr) bool {
 	var state uint32
-	if r, _, _ := miniShell.NewProc("SHQueryUserNotificationState").Call(uintptr(unsafe.Pointer(&state))); int32(r) >= 0 && (state == 2 || state == 3 || state == 4) {
+	// QUNS_BUSY (2) is a notification policy, not proof that the foreground
+	// window is fullscreen. Check its actual frame below. Keep exclusive D3D
+	// and explicit presentation mode suppression.
+	if r, _, _ := miniShell.NewProc("SHQueryUserNotificationState").Call(uintptr(unsafe.Pointer(&state))); int32(r) >= 0 && miniExclusivePresentation(state) {
 		return true
 	}
 	f, _, _ := user32.NewProc("GetForegroundWindow").Call()
@@ -838,10 +844,28 @@ func miniFullscreen(mon uintptr, bounds miniRect, host, overlay uintptr) bool {
 		return false
 	}
 	var rect miniRect
-	if !miniBool("GetWindowRect", f, uintptr(unsafe.Pointer(&rect))) {
+	r, _, _ := miniDWM.NewProc("DwmGetWindowAttribute").Call(f, 9, uintptr(unsafe.Pointer(&rect)), unsafe.Sizeof(rect))
+	if int32(r) < 0 || rect.Right <= rect.Left || rect.Bottom <= rect.Top {
+		if !miniBool("GetWindowRect", f, uintptr(unsafe.Pointer(&rect))) {
+			return false
+		}
+	}
+	style, _, _ := user32.NewProc("GetWindowLongPtrW").Call(f, ^uintptr(15)) // GWL_STYLE
+	return miniFrameFullscreen(bounds, rect, style)
+}
+
+func miniExclusivePresentation(state uint32) bool {
+	return state == 3 || state == 4
+}
+
+func miniFrameFullscreen(bounds, frame miniRect, style uintptr) bool {
+	// A normal maximized Chromium window can extend past monitor bounds due
+	// to invisible resize borders, or fill them with taskbar auto-hide enabled.
+	// Its caption identifies a regular window, unlike F11/video borderless mode.
+	if style&0x00c00000 == 0x00c00000 { // WS_CAPTION
 		return false
 	}
-	return rect.Left <= bounds.Left && rect.Top <= bounds.Top && rect.Right >= bounds.Right && rect.Bottom >= bounds.Bottom
+	return frame.Left <= bounds.Left && frame.Top <= bounds.Top && frame.Right >= bounds.Right && frame.Bottom >= bounds.Bottom
 }
 func miniCreateIcon() uintptr {
 	var d miniDIB

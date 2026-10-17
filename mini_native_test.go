@@ -578,6 +578,134 @@ func TestMiniNativeDrag(t *testing.T) {
 	t.Logf("real desktop mouse drag moved overlay to %d,%d without activation", real.Left, real.Top)
 }
 
+func TestMiniNativeBrowserVisibility(t *testing.T) {
+	if os.Getenv("YTM_MINI_BROWSER_TEST") != "1" {
+		t.Skip("requires an interactive Windows desktop")
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	oldDPI, _, _ := user32.NewProc("SetThreadDpiAwarenessContext").Call(^uintptr(3))
+	defer user32.NewProc("SetThreadDpiAwarenessContext").Call(oldDPI)
+	cfg := defaultMiniConfig()
+	cfg.AlwaysVisible, cfg.Visualizer = true, false
+	p, err := startMiniPlayer(cfg, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	if h := p.Status().Terminal; h != 0 {
+		focusMiniTestWindow(t, h)
+	}
+	wait := func(label string, check func() bool) {
+		t.Helper()
+		until := time.Now().Add(4 * time.Second)
+		for time.Now().Before(until) {
+			if check() {
+				return
+			}
+			time.Sleep(40 * time.Millisecond)
+		}
+		t.Fatalf("%s: %+v", label, p.Status())
+	}
+	wait("initial overlay", func() bool { return p.Status().Visible })
+	s := p.Status()
+	mon, _, _ := user32.NewProc("MonitorFromWindow").Call(s.Terminal, 2)
+	info := miniMonitor{Size: uint32(unsafe.Sizeof(miniMonitor{}))}
+	user32.NewProc("GetMonitorInfoW").Call(mon, uintptr(unsafe.Pointer(&info)))
+	r := info.Monitor
+	fixture, _, _ := user32.NewProc("CreateWindowExW").Call(0, uintptr(unsafe.Pointer(miniWide("STATIC"))), uintptr(unsafe.Pointer(miniWide("YTM visibility test (temporary)"))), 0x10cf0000, uintptr(r.Left+100), uintptr(r.Top+100), 600, 400, 0, 0, 0, 0)
+	if fixture == 0 {
+		t.Fatal("cannot create test window")
+	}
+	defer user32.NewProc("DestroyWindow").Call(fixture)
+	user32.NewProc("ShowWindow").Call(fixture, 3)
+	focusMiniTestWindow(t, fixture)
+	// Simulate a framed browser occupying every monitor pixel, including the
+	// invisible resize borders that caused false fullscreen classification.
+	miniSetPositionProc.Call(fixture, 0, uintptr(r.Left-8), uintptr(r.Top-8), uintptr(r.Right-r.Left+16), uintptr(r.Bottom-r.Top+16), 0x14)
+	if miniFullscreen(mon, r, s.Host, s.Overlay) {
+		t.Fatal("maximized framed window classified as fullscreen")
+	}
+	wait("maximized regular window keeps mini visible", func() bool { st := p.Status(); return st.Visible && !st.Fullscreen })
+	// True borderless fullscreen must still suppress the overlay.
+	user32.NewProc("SetWindowLongPtrW").Call(fixture, ^uintptr(15), 0x90000000)
+	miniSetPositionProc.Call(fixture, 0, uintptr(r.Left), uintptr(r.Top), uintptr(r.Right-r.Left), uintptr(r.Bottom-r.Top), 0x34)
+	wait("true fullscreen hides mini", func() bool { st := p.Status(); return st.Fullscreen && !st.Visible })
+	user32.NewProc("SetWindowLongPtrW").Call(fixture, ^uintptr(15), 0x10cf0000)
+	miniSetPositionProc.Call(fixture, 0, uintptr(r.Left+100), uintptr(r.Top+100), 600, 400, 0x34)
+	wait("leaving fullscreen restores mini", func() bool { st := p.Status(); return st.Visible && !st.Fullscreen })
+	if s.Terminal != 0 {
+		cfg.AlwaysVisible = false
+		p.publish(miniInput{Settings: cfg})
+		user32.NewProc("ShowWindowAsync").Call(s.Terminal, 6)
+		defer user32.NewProc("ShowWindowAsync").Call(s.Terminal, 9)
+		wait("minimized terminal keeps mini visible", func() bool { st := p.Status(); return st.Minimized && st.Visible })
+	}
+	var browser uintptr
+	var browserName string
+	callback := windows.NewCallback(func(h, unused uintptr) uintptr {
+		if miniClass(h) != "Chrome_WidgetWin_1" || !miniBool("IsWindowVisible", h) || miniBool("IsIconic", h) {
+			return 1
+		}
+		var pid uint32
+		user32.NewProc("GetWindowThreadProcessId").Call(h, uintptr(unsafe.Pointer(&pid)))
+		process, e := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+		if e != nil {
+			return 1
+		}
+		defer windows.CloseHandle(process)
+		var path [1024]uint16
+		size := uint32(len(path))
+		if windows.QueryFullProcessImageName(process, 0, &path[0], &size) != nil {
+			return 1
+		}
+		name := strings.ToLower(filepath.Base(windows.UTF16ToString(path[:size])))
+		if name == "browser.exe" || name == "coccoc.exe" || name == "chrome.exe" || name == "msedge.exe" {
+			browser, browserName = h, name
+			return 0
+		}
+		return 1
+	})
+	user32.NewProc("EnumWindows").Call(callback, 0)
+	if browser != 0 {
+		focusMiniTestWindow(t, fixture)
+		user32.NewProc("SetForegroundWindow").Call(browser)
+		fg, _, _ := user32.NewProc("GetForegroundWindow").Call()
+		if fg != browser {
+			t.Fatal("could not activate actual browser for verification")
+		}
+		browserMon, _, _ := user32.NewProc("MonitorFromWindow").Call(browser, 2)
+		if browserMon != mon {
+			t.Log("actual browser is on a different monitor")
+		}
+		if miniFullscreen(mon, r, s.Host, s.Overlay) {
+			t.Fatal("actual browser is fullscreen; normal browser case unavailable")
+		}
+		time.Sleep(700 * time.Millisecond)
+		if st := p.Status(); !st.Visible || st.Fullscreen {
+			t.Fatalf("mini vanished over actual %s: %+v", browserName, st)
+		}
+		// Check z-order, not merely IsWindowVisible (a covered overlay is useless).
+		h, _, _ := user32.NewProc("GetTopWindow").Call(0)
+		for i := 0; h != 0 && i < 2048; i++ {
+			if h == s.Overlay {
+				break
+			}
+			if h == browser {
+				t.Fatal("browser covers mini in native z-order")
+			}
+			h, _, _ = user32.NewProc("GetWindow").Call(h, 2)
+		}
+		if h != s.Overlay {
+			t.Fatal("could not find overlay in z-order")
+		}
+		t.Logf("actual %s: mini visible above browser, terminal minimized=%v", browserName, p.Status().Minimized)
+	} else {
+		t.Log("LIMITATION: no existing Chromium browser to activate")
+	}
+	t.Log("regular maximized window, true fullscreen, recovery and native z-order verified")
+}
+
 // Test-only real input focuses the dedicated verification terminal. Posted
 // messages alone cannot grant foreground activation permission on Windows.
 func focusMiniTestWindow(t *testing.T, h uintptr) {

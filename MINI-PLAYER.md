@@ -102,6 +102,10 @@ builds), or a PCM tap in mpv. That is not silently claimed by this implementatio
   changes are handled. Multiple companions stack when they would overlap.
 - Fullscreen and presentation state suppress the overlay; shell policy changes
   are sampled, so transitions can take up to roughly 250 ms.
+- Normal and maximized browsers do not suppress it. Fullscreen detection uses
+  the foreground window's visible frame and caption, not notification BUSY
+  state or invisible maximized resize borders. Switching applications refreshes
+  its topmost placement without activating it.
 - `TaskbarCreated` re-registers the tray icon after Explorer restarts, with
   retry when Explorer is not ready. Windows controls tray overflow placement.
 - A classic console is identified directly. Windows Terminal uses a pseudoconsole,

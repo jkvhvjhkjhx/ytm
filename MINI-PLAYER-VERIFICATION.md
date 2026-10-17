@@ -34,6 +34,12 @@ No new runtime dependencies were added.
   the overlay by the expected pixel deltas without activating another window.
   Position survived automatic layout ticks, cancellation stopped movement, and
   the overlay thread released mouse capture. The test restored the cursor.
+- Follow-up browser visibility: `TestMiniNativeBrowserVisibility` passed on
+  the actual desktop. It activated the existing Cốc Cốc `browser.exe` window
+  with the verification terminal minimized and confirmed the mini-player was
+  visible and above the browser in native z-order. A framed maximized window
+  stayed visible; a real borderless fullscreen fixture hid the mini-player;
+  leaving fullscreen restored it. This test required no audio muting.
 
 Local evidence is under ignored `dist/mini-verification`,
 `dist/mini-clock-verification` and `dist/mini-app-check-final`.
