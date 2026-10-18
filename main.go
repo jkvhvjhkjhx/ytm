@@ -20,6 +20,17 @@ import (
 
 const appVersion = "0.2.5"
 
+// The TUI uses its own renderer. nilRenderer cannot emit mouse protocol modes,
+// so own their lifetime here as well as enabling Bubble Tea's Windows reader.
+// Reporting button events prevents the host's default right-click paste; the
+// model discards those events because the terminal interface is keyboard-only.
+const terminalPlayerEnter = "\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1000h\x1b[?1006h"
+const terminalPlayerExit = "\x1b[?1006l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l"
+
+func newTerminalProgram(m model) *tea.Program {
+	return tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(os.Stdin), tea.WithOutput(io.Discard), tea.WithMouseCellMotion())
+}
+
 type Config struct {
 	MiniPlayer         MiniConfig `toml:"mini_player"`
 	VisualizerEffect   string     `toml:"visualizer_effect"`
@@ -360,7 +371,7 @@ func runPlayer(cfg Config, mpvPath, ytdlpPath, cavaPath, runtime string) error {
 		model.searching = true
 		model.searchGeneration = 1
 	}
-	program := tea.NewProgram(model, tea.WithoutRenderer(), tea.WithInput(os.Stdin), tea.WithOutput(io.Discard))
+	program := newTerminalProgram(model)
 	model.program = program
 	if mini != nil {
 		go func() {
@@ -386,8 +397,8 @@ func runPlayer(cfg Config, mpvPath, ytdlpPath, cavaPath, runtime string) error {
 
 	// Bubble Tea owns keyboard decoding; the app paints a fixed screen so Sixel
 	// artwork can be positioned in the reserved player pane without a GUI layer.
-	_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H")
-	defer io.WriteString(os.Stdout, "\x1b[0m\x1b[?25h\x1b[?1049l")
+	_, _ = io.WriteString(os.Stdout, terminalPlayerEnter)
+	defer io.WriteString(os.Stdout, terminalPlayerExit)
 	if _, err := program.Run(); err != nil {
 		return err
 	}

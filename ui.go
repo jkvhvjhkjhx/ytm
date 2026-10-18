@@ -120,6 +120,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer func() { m.publishMini() }()
 	var cmd tea.Cmd
 	switch v := msg.(type) {
+	case tea.MouseMsg:
+		// Terminal interaction is keyboard-only. In particular, a right click
+		// must not paste, change focus or open any app menu.
+		return m, nil
 	case miniActionMsg:
 		cmd = m.handleMiniAction(v)
 	case tea.WindowSizeMsg:
