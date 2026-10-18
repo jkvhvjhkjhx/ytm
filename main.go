@@ -18,7 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const appVersion = "0.2.5"
+const appVersion = "0.2.6"
 
 // The TUI uses its own renderer. nilRenderer cannot emit mouse protocol modes,
 // so own their lifetime here as well as enabling Bubble Tea's Windows reader.
