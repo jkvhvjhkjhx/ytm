@@ -10,8 +10,14 @@ yt_dlp_path = ""
 cava_path = ""
 deno_path = ""
 node_path = ""
+yt_cookies_browser = "" # "firefox": use your logged-in YouTube Premium session for 256 kbps audio (falls back to free quality)
 audio_enhance = true # loudness normalisation + 48 kHz stereo, closer to YouTube
-audio_eq = "none"    # none, bass, vivid
+audio_eq = "none"    # none, bass, vivid, vocal, chu2, chu2-kazi, chu2-full
+audio_compress = false # gentle compressor + limiter after the EQ
+audio_resample = false # soxr high-quality resampling (needs an mpv built with soxr)
+audio_exclusive = false # WASAPI exclusive mode: other apps go silent while ytm plays
+audio_gain = 0.0      # extra volume in dB (-12..+12); a peak limiter is added when > 0
+audio_width = 1.0     # stereo width 1.0 (off) .. 2.5, adds a peak limiter when > 1
 
 [mini_player]
 enabled = true

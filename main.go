@@ -48,6 +48,12 @@ type Config struct {
 	NodePath           string     `toml:"node_path"`
 	AudioEnhance       bool       `toml:"audio_enhance"`
 	AudioEQ            string     `toml:"audio_eq"`
+	AudioCompress      bool       `toml:"audio_compress"`
+	AudioResample      bool       `toml:"audio_resample"`
+	AudioExclusive     bool       `toml:"audio_exclusive"`
+	AudioWidth         float64    `toml:"audio_width"`
+	AudioGain          float64    `toml:"audio_gain"`
+	YTCookiesBrowser   string     `toml:"yt_cookies_browser"`
 }
 
 func defaultConfig() Config {
@@ -56,7 +62,7 @@ func defaultConfig() Config {
 		VisualizerEffect: "glass",
 		Theme:            "nocturne", VisualizerStyle: "spectrum", VisualizerFPS: 24,
 		Volume: 70, ThumbnailSize: 52, ImageMode: "auto", DefaultSearchLimit: 10,
-		AudioEnhance: true, AudioEQ: "none",
+		AudioEnhance: true, AudioEQ: "none", AudioWidth: 1,
 	}
 }
 
@@ -102,6 +108,13 @@ func loadConfig() (Config, error) {
 	cfg.MiniPlayer = normalizeMiniConfig(cfg.MiniPlayer)
 	cfg.AudioEQ = normalizeAudioEQ(cfg.AudioEQ)
 	setAudioSettings(cfg.AudioEnhance, cfg.AudioEQ)
+	setAudioCompress(cfg.AudioCompress)
+	cfg.AudioWidth = normalizeAudioWidth(cfg.AudioWidth)
+	setAudioOptions(cfg.AudioResample, cfg.AudioExclusive, cfg.AudioWidth)
+	cfg.AudioGain = normalizeAudioGain(cfg.AudioGain)
+	setAudioGain(cfg.AudioGain)
+	cfg.YTCookiesBrowser = normalizeCookiesBrowser(cfg.YTCookiesBrowser)
+	setCookiesBrowser(cfg.YTCookiesBrowser)
 	return cfg, nil
 }
 

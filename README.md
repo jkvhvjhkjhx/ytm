@@ -176,8 +176,25 @@ audio stream URLs.
 ytm asks yt-dlp for Opus audio first (the codec YouTube serves in browsers) and
 falls back to the best available stream. `audio_enhance = true` (default) adds
 mpv `--audio-samplerate=48000 --audio-channels=stereo` and a gentle `dynaudnorm`
-loudness filter; `audio_eq = "none" | "bass" | "vivid"` adds a light EQ preset.
+loudness filter; `audio_eq = "none" | "bass" | "vivid" | "vocal" | "chu2" | "chu2-kazi" | "chu2-full"` adds a light EQ preset.
+`chu2` / `chu2-kazi` / `chu2-full` (chu2 with more body) are Moondrop Chu 2 AutoEq presets; they replace the other presets, do not stack.
+`audio_compress = true` (default false) adds a gentle compressor (about -20 dB threshold, 2:1, +2 dB makeup) and a 0.95 peak limiter after the EQ, independent of `audio_enhance`.
+`audio_resample = true` asks mpv for soxr resampling (`--audio-swresample-o=resampler=soxr,precision=28`); it only works if your mpv build includes soxr, otherwise playback fails, so leave it off if unsure.
+`audio_exclusive = true` adds `--audio-exclusive=yes` (WASAPI exclusive mode): bit-exact output, but other apps go silent while ytm plays.
+`audio_width = 1.2` (1.0 = off, clamped to 1.0..2.5) widens the stereo image with `extrastereo` after the EQ and always ends the chain with a peak limiter.
+`audio_gain = 4` (dB, default 0, clamped to -12..+12) adds `volume=<gain>dB` after the EQ and width and before the compressor, for when playback is too quiet at ytm volume 100. When gain > 0 a single `alimiter=limit=0.95` is always the last filter to prevent clipping.
 Set `audio_enhance = false` for untouched audio. Changes apply on next launch.
+
+## YouTube Premium audio
+
+`yt_cookies_browser = "firefox"` (default empty = off; only `firefox` is accepted)
+makes the stream and download yt-dlp calls add `--cookies-from-browser firefox`,
+so a logged-in Premium account gets the ~256 kbps Opus stream (format 774) instead
+of ~130 kbps. Cookies are read locally by yt-dlp only; ytm never stores, copies or
+logs them, and search is unaffected. If the cookie call fails (Firefox removed,
+cookie DB locked, login expired), ytm retries once without cookies using the
+normal settings, so playback keeps working at free quality. Close Firefox if
+cookie reading fails because the database is locked.
 
 ## Current limitations
 

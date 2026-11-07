@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -149,5 +150,63 @@ func TestLiveAudioStreaming(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Logf("full-download baseline ready and playing past 1s in %.2fs", time.Since(start).Seconds())
+	}
+}
+
+func TestCookieArgsAndAllowlist(t *testing.T) {
+	if normalizeCookiesBrowser("Firefox") != "firefox" || normalizeCookiesBrowser("chrome") != "" || normalizeCookiesBrowser("") != "" {
+		t.Fatal("allowlist")
+	}
+	base := streamArgs("node:x", "https://www.youtube.com/watch?v=abc")
+	if strings.Contains(strings.Join(base, " "), "cookies") {
+		t.Fatal("cookies in base args")
+	}
+	with := withCookies(base, "firefox")
+	if with[0] != "--cookies-from-browser" || with[1] != "firefox" || len(with) != len(base)+2 {
+		t.Fatalf("bad args %v", with)
+	}
+	if strings.Join(with[2:], " ") != strings.Join(base, " ") || !strings.Contains(strings.Join(with, " "), "player_client=web_embedded") {
+		t.Fatal("client settings changed")
+	}
+	if len(withCookies(base, "")) != len(base) {
+		t.Fatal("empty browser must not add args")
+	}
+}
+
+func TestStreamBadge(t *testing.T) {
+	cases := []struct {
+		out  string
+		fail bool
+		ok   bool
+		want string
+	}{
+		{"ytm-fmt:774 opus 257.304\nhttps://x", false, true, "Opus 257k · PREMIUM"},
+		{"ytm-fmt:251 opus 128.93\n", false, true, "Opus 129k · FREE"},
+		{"ytm-fmt:251 opus 128.93\n", true, true, "Opus 129k · FREE (cookies failed)"},
+		{"ytm-fmt:141 mp4a.40.2 258\n", false, true, "AAC 258k · PREMIUM"},
+		{"garbage", false, true, "?"},
+		{"garbage", true, true, "FREE (cookies failed)"},
+		{"", false, false, ""},
+	}
+	for _, c := range cases {
+		in := parseStreamInfo(c.out)
+		in.CookieFailed = c.fail
+		if got := streamBadge(in, c.ok); got != c.want {
+			t.Errorf("%q fail=%v: got %q want %q", c.out, c.fail, got, c.want)
+		}
+	}
+}
+
+func TestMusicURL(t *testing.T) {
+	if got := musicURL("https://www.youtube.com/watch?v=JgggA8Jtzyg"); got != "https://music.youtube.com/watch?v=JgggA8Jtzyg" {
+		t.Fatalf("got %q", got)
+	}
+	for _, bad := range []string{"", "https://www.youtube.com/watch?v=", "https://www.youtube.com/watch?v=a b;c", "%zz"} {
+		if musicURL(bad) != "" {
+			t.Errorf("%q should be rejected", bad)
+		}
+	}
+	if canonicalYouTubeURL(musicURL("https://www.youtube.com/watch?v=JgggA8Jtzyg")) != "https://www.youtube.com/watch?v=JgggA8Jtzyg" {
+		t.Fatal("canonical round trip")
 	}
 }

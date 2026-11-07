@@ -221,12 +221,17 @@ func (m *model) frame(g geometry) []string {
 	if g.mode == modeCompact {
 		clock = fmt.Sprintf("%s/%s %d%%", humanDuration(m.snapshot.Time), humanDuration(dur), m.volume)
 	}
+	if g.mode != modeUltra {
+		if b := streamBadge(streamInfoFor(m.current.URL)); b != "" && m.current.URL != "" {
+			state += "  " + b
+		}
+	}
 	info := map[int]string{}
 	switch g.mode {
 	case modeFull, modeMedium:
-		info = map[int]string{0: accent + state + reset, 2: bright + truncate(title, infoW) + reset, 3: dim + truncate(artist, infoW) + reset, 5: accent + strings.Repeat("━", filled) + dim + strings.Repeat("─", bw-filled) + reset, 6: dim + truncate(clock, infoW) + reset}
+		info = map[int]string{0: accent + truncate(state, infoW) + reset, 2: bright + truncate(title, infoW) + reset, 3: dim + truncate(artist, infoW) + reset, 5: accent + strings.Repeat("━", filled) + dim + strings.Repeat("─", bw-filled) + reset, 6: dim + truncate(clock, infoW) + reset}
 	case modeCompact:
-		info = map[int]string{0: accent + state + reset, 1: bright + truncate(title, infoW) + reset, 2: dim + truncate(artist, infoW) + reset, 3: accent + truncate(clock, infoW) + reset}
+		info = map[int]string{0: accent + truncate(state, infoW) + reset, 1: bright + truncate(title, infoW) + reset, 2: dim + truncate(artist, infoW) + reset, 3: accent + truncate(clock, infoW) + reset}
 	case modeUltra:
 		line := title
 		if m.current.Title == "" {
