@@ -56,6 +56,10 @@ func resolveAudioSource(ctx context.Context, ytdlp, runtime, videoURL string) (s
 	return stream, true, nil
 }
 
+// audioFormat prefers Opus (what YouTube serves browsers) and falls back to
+// the best available audio when no Opus stream exists.
+const audioFormat = "bestaudio[acodec=opus]/bestaudio"
+
 func extractAudioStreamURL(ctx context.Context, ytdlp, runtime, videoURL string) (string, error) {
 	videoURL = canonicalYouTubeURL(videoURL)
 	if videoURL == "" {
@@ -64,7 +68,7 @@ func extractAudioStreamURL(ctx context.Context, ytdlp, runtime, videoURL string)
 	args := []string{"--ignore-config", "--no-plugin-dirs", "--js-runtimes", runtime, "--remote-components", "ejs:github",
 		"--extractor-args", "youtube:player_client=web_embedded", "--no-playlist", "--no-progress", "--no-warnings",
 		"--socket-timeout", "10", "--retries", "2", "--fragment-retries", "2", "--match-filter", "!is_live",
-		"-f", "bestaudio", "--get-url", "--", videoURL}
+		"-f", audioFormat, "--get-url", "--", videoURL}
 	cmd := exec.CommandContext(ctx, ytdlp, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 	var stderr bytes.Buffer
@@ -127,7 +131,7 @@ func prepareAudio(ctx context.Context, ytdlp, runtime, url string) (string, erro
 	args := []string{"--ignore-config", "--no-plugin-dirs", "--js-runtimes", runtime, "--remote-components", "ejs:github",
 		"--extractor-args", "youtube:player_client=web_embedded", "--no-playlist", "--no-progress", "--no-warnings",
 		"--socket-timeout", "15", "--retries", "3", "--fragment-retries", "3", "--max-filesize", "128M",
-		"--match-filter", "!is_live", "-f", "bestaudio", "-o", filepath.Join(tmp, "audio.%(ext)s"), "--", url}
+		"--match-filter", "!is_live", "-f", audioFormat, "-o", filepath.Join(tmp, "audio.%(ext)s"), "--", url}
 	cmd := exec.CommandContext(ctx, ytdlp, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 	out, err := cmd.CombinedOutput()

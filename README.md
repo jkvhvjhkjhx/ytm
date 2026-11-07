@@ -171,6 +171,14 @@ You can set explicit paths for mpv, yt-dlp, CAVA and Deno in the configuration
 if automatic discovery fails. Playlist metadata stores video URLs, not temporary
 audio stream URLs.
 
+## Audio quality
+
+ytm asks yt-dlp for Opus audio first (the codec YouTube serves in browsers) and
+falls back to the best available stream. `audio_enhance = true` (default) adds
+mpv `--audio-samplerate=48000 --audio-channels=stereo` and a gentle `dynaudnorm`
+loudness filter; `audio_eq = "none" | "bass" | "vivid"` adds a light EQ preset.
+Set `audio_enhance = false` for untouched audio. Changes apply on next launch.
+
 ## Current limitations
 
 - Cached audio opens locally. For uncached tracks, yt-dlp resolves an audio-only

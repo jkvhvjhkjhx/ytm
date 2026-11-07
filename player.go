@@ -88,6 +88,7 @@ func (p *MPV) Start() error {
 		"--msg-level=all=warn", "--ytdl=no", "--load-scripts=no",
 		"--cache=yes", "--demuxer-readahead-secs=18", "--input-ipc-server=" + p.pipe,
 	}
+	args = append(args, mpvAudioArgs()...)
 	p.cmd = exec.Command(p.path, args...)
 	p.cmd.Stdout, p.cmd.Stderr = p.logFile, p.logFile
 	p.cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}

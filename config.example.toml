@@ -10,6 +10,8 @@ yt_dlp_path = ""
 cava_path = ""
 deno_path = ""
 node_path = ""
+audio_enhance = true # loudness normalisation + 48 kHz stereo, closer to YouTube
+audio_eq = "none"    # none, bass, vivid
 
 [mini_player]
 enabled = true

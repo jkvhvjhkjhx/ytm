@@ -46,6 +46,8 @@ type Config struct {
 	CavaPath           string     `toml:"cava_path"`
 	DenoPath           string     `toml:"deno_path"`
 	NodePath           string     `toml:"node_path"`
+	AudioEnhance       bool       `toml:"audio_enhance"`
+	AudioEQ            string     `toml:"audio_eq"`
 }
 
 func defaultConfig() Config {
@@ -54,6 +56,7 @@ func defaultConfig() Config {
 		VisualizerEffect: "glass",
 		Theme:            "nocturne", VisualizerStyle: "spectrum", VisualizerFPS: 24,
 		Volume: 70, ThumbnailSize: 52, ImageMode: "auto", DefaultSearchLimit: 10,
+		AudioEnhance: true, AudioEQ: "none",
 	}
 }
 
@@ -97,6 +100,8 @@ func loadConfig() (Config, error) {
 	}
 	cfg.VisualizerEffect = presetFor(cfg.VisualizerEffect).ID
 	cfg.MiniPlayer = normalizeMiniConfig(cfg.MiniPlayer)
+	cfg.AudioEQ = normalizeAudioEQ(cfg.AudioEQ)
+	setAudioSettings(cfg.AudioEnhance, cfg.AudioEQ)
 	return cfg, nil
 }
 
